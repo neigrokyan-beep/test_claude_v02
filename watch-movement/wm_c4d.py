@@ -37,6 +37,11 @@ def add_part(doc, mesh, name, pos=(0, 0, 0), parent=None, sds=True, editor=1, re
     if sds:
         s = c4d.BaseObject(Osds)
         s.SetName(name + "_sds")
+        try:
+            s[c4d.SDSOBJECT_TYPE] = c4d.SDSOBJECT_TYPE_OSD_CATMARK
+            s[c4d.SDSOBJECT_OSD_BOUNDARY_METHOD] = c4d.SDSOBJECT_OSD_BOUNDARY_METHOD_EDGEANDCORNER
+        except Exception:
+            pass
         s[c4d.SDSOBJECT_SUBEDITOR_CM] = editor
         s[c4d.SDSOBJECT_SUBRAY_CM] = render
         s.InsertUnder(nul)
