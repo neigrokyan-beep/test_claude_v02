@@ -327,7 +327,7 @@ def build():
     add("case_ring", "case", f_annulus(17.4, 14.6, 5.2, None, steps=[(16.6, 0.25)], bevel=0.12), 0, 0, 1.2, mat="steel_polished")
     add("bezel", "case", f_annulus(17.2, 14.0, 0.9, None, bevel=0.15), 0, 0, 6.8, mat="steel_polished")
     add("crystal", "glass", f_disc(15.2, 0.9, 12, dome=1.4), 0, 0, 7.2, mat="glass")
-    add("crown", "case", lambda: g.gear(24, 1.6, 2.2, 0.35, kind="spur", per_tooth=4, chamfer=0.1), 17.0, 0.0, 3.0, mat="steel_polished")
+    add("crown", "case", lambda: g.gear(24, 1.6, 2.2, 0.35, kind="spur", per_tooth=4, chamfer=0.1), 17.0, CRW[0], 3.0, mat="steel_polished")
     add("hour_hand", "hand", f_lever([(-1.2, 0.0), (0.0, 0.0), (5.0, 0.0), (7.2, 0.0)], 0.9, 0.16), 0, 0, 6.5, rot=290, mat="steel_polished")
     add("minute_hand", "hand", f_lever([(-1.6, 0.0), (0.0, 0.0), (7.0, 0.0), (11.4, 0.0)], 0.6, 0.14), 0, 0, 6.7, rot=60, mat="steel_polished")
     _details(parts, S, add, dict(B=B, C=C, T=T, F=F, E=E, BAL=BAL, PAL=PAL, CRW=CRW, wp=wp, moon=moon, star=star, bridges=bridges, feet=feet))
@@ -336,7 +336,8 @@ def build():
 
 MESH_PAIRS = [("barrel", "centre_pinion", 60, 8), ("centre_wheel", "third_pinion", 48, 8), ("third_wheel", "fourth_pinion", 44, 8),
               ("fourth_wheel", "escape_pinion", 40, 6), ("minute_wheel", "hour_pinion", 32, 16), ("hour_pinion", "hour_wheel", 16, 36),
-              ("date_driver", "date_star", 20, 31), ("crown_wheel", "winding_pinion", 30, 14)]
+              ("date_driver", "date_star", 20, 31), ("crown_wheel", "winding_pinion", 30, 14),
+              ("date_star", "cal_wheel0", 31, 18), ("cal_wheel0", "cal_wheel1", 18, 24), ("cal_wheel1", "cal_wheel2", 24, 28)]
 
 
 def _mesh_phases(parts):
@@ -455,7 +456,7 @@ def _details(parts, S, add, cx):
         add("yoke", "lever", f_lever([(0.0, 0.0), (1.4, -0.5), (2.6, -0.2)], 0.5, 0.22), lv[0] + 0.3, lv[1] - 0.9, 1.3, rot=-15, mat="steel")
         add("yoke_spring", "lever", f_lever([(0.0, 0.0), (1.2, 0.6), (2.4, 0.3)], 0.12, 0.12), lv[0] - 0.4, lv[1] + 0.9, 1.3, rot=10, mat="steel_blue")
         add("setting_lever_screw", "screw_t", f_screw(0.5, 0.7), lv[0], lv[1], 1.25 + 0.0 - 0.7 * 0.5 + 0.02, mat="steel_blued")
-    add("winding_stem", "lever", (lambda: g.sweep([(0.0, 0.0, 0.0), (9.0, 0.0, 0.0), (18.0, 0.0, 0.0)], 0.64, 0.64, k=2, corner=1.0)), CRW[0], CRW[1], 1.3, rot=-90, mat="steel_polished")
+    add("winding_stem", "lever", (lambda L=19.4 + CRW[1]: g.sweep([(0.0, 0.0, 0.0), (L / 2, 0.0, 0.0), (L, 0.0, 0.0)], 0.64, 0.64, k=2, corner=1.0)), CRW[0], CRW[1], 1.3, rot=-90, mat="steel_polished")
 
     # -- top-level levers on the calendar plate: three jumpers with springs, four correctors (z 4.92)
     S.add(moon[0], moon[1], 4.6, 5.0, 5.5, "moon")
@@ -515,13 +516,65 @@ def _details(parts, S, add, cx):
         y = 19.4 if k == 0 else -19.4
         add("spring_bar%d" % k, "case", (lambda: g.sweep([(-4.2, 0.0, 0.0), (0.0, 0.0, 0.0), (4.2, 0.0, 0.0)], 0.8, 0.8, k=2, corner=1.0)),
             0.0, y, 3.4 - 0.6, mat="steel_polished")
-    add("crown_tube", "case", lambda: g.annulus(1.1, 0.6, 1.6, 24, bevel=0.03), 16.2, 0.0, 3.0, mat="steel_polished")
-    add("crown_stem_cap", "case", f_disc(0.8, 0.3, 2, dome=0.15), 19.6, 0.0, 3.0, mat="steel_polished")
+    add("crown_tube", "case", lambda: g.annulus(1.1, 0.6, 1.6, 24, bevel=0.03), 16.2, CRW[0], 3.0, mat="steel_polished")
+    add("crown_stem_cap", "case", f_disc(0.8, 0.3, 2, dome=0.15), 19.6, CRW[0], 3.0, mat="steel_polished")
     add("second_hand", "hand", f_lever([(-2.4, 0.0), (0.0, 0.0), (9.0, 0.0), (12.4, 0.0)], 0.22, 0.08), 0, 0, 6.9, rot=200, mat="steel_polished")
     add("second_counterweight", "hand", f_disc(0.55, 0.1, 2), -2.4 * math.cos(math.radians(200)), -2.4 * math.sin(math.radians(200)), 6.9, mat="steel_polished")
     add("hand_cap", "hand", f_disc(0.7, 0.35, 3, dome=0.1), 0, 0, 7.0, mat="steel_polished")
     add("subdial_hand0", "hand", f_lever([(0.0, 0.0), (2.6, 0.0)], 0.16, 0.06), 0.0, 6.0, 6.5, rot=120, mat="steel_blued")
     add("subdial_hand1", "hand", f_lever([(0.0, 0.0), (2.4, 0.0)], 0.16, 0.06), -6.0, -3.5, 6.5, rot=40, mat="steel_blued")
+    _details2(add, S, cx)
+
+
+def _details2(add, S, cx):
+    """Third pass: collars, plate screws, holders, dial feet, bezel screws, hand tubes, calendar intermediates."""
+    B, C, BAL = cx["B"], cx["C"], cx["BAL"]
+    # gold collars around the base of every pillar and calendar post (countersinks)
+    for i, (br, p) in enumerate(cx["feet"]):
+        add("pillar_collar%d" % i, "collar", f_annulus(0.9, 0.48, 0.07, 24, bevel=0.02), p[0], p[1], 0.9, mat="gold")
+    for k in range(6):
+        x, y = polar(0, 0, 13.2, 30 + 60 * k)
+        add("post_collar%d" % k, "collar", f_annulus(0.85, 0.44, 0.07, 24, bevel=0.02), x, y, 0.9, mat="gold")
+    # extra plate screws in free spots (blued steel, small)
+    n = 0
+    for k in range(40):
+        pref = polar(0, 0, 4 + (k % 7) * 1.5, 47.0 * k + 11)
+        p = S.near(pref, 0.5, 0.9, 1.4, rmax=1.5, margin=0.05)
+        if p:
+            add("plate_screw%d" % n, "screw_t", f_screw(0.5, 0.7), p[0], p[1], 0.9 + 0.16 - 0.7 * 0.5, rot=29 * k, mat="steel_blued")
+            S.add(p[0], p[1], 0.5, 0.9, 1.3, "screw")
+            n += 1
+        if n >= 16:
+            break
+    # movement holders: three clamps on the plate rim with screws
+    for k in range(3):
+        x, y = polar(0, 0, 15.0, 120 * k + 20)
+        add("holder%d" % k, "lever", f_lever([(0.0, 0.0), (1.4, 0.0), (2.6, 0.0)], 0.9, 0.22), x, y, 1.25, rot=120 * k + 20 + 180, mat="steel")
+        add("holder_screw%d" % k, "screw_t", f_screw(0.55, 0.8), x, y, 1.47 - 0.8 * 0.55 + 0.02, rot=13 * k, mat="steel_blued")
+    # dial feet and their screws, bezel screws, hand tubes
+    for k in range(3):
+        x, y = polar(0, 0, 13.9, 90 + 120 * k)
+        add("dial_foot%d" % k, "case", f_arbor(0.3, 1.0), x, y, 5.0, mat="steel")
+        add("dial_foot_screw%d" % k, "screw_t", f_screw(0.4, 0.6), x, y, 4.6, rot=k * 40, mat="steel_blued")
+    for k in range(8):
+        x, y = polar(0, 0, 16.6, 22.5 + 45 * k)
+        add("bezel_screw%d" % k, "screw_t", f_screw(0.5, 0.5), x, y, 7.7 - 0.5 * 0.5 + 0.02, rot=k * 17, mat="steel_polished")
+    add("crown_gasket", "case", lambda: g.annulus(1.05, 0.62, 0.25, 24, bevel=0.02), 16.0, cx["CRW"][0], 3.0, mat="steel_dark")
+    add("hour_pipe", "hand", lambda: g.annulus(0.55, 0.28, 0.9, 24, bevel=0.03), 0, 0, 6.35, mat="steel_polished")
+    add("minute_pipe", "hand", lambda: g.annulus(0.42, 0.22, 1.0, 24, bevel=0.03), 0, 0, 6.55, mat="steel_polished")
+    add("second_pipe", "hand", lambda: g.annulus(0.3, 0.14, 1.1, 16, bevel=0.02), 0, 0, 6.75, mat="steel_polished")
+    # calendar intermediates: three small wheels meshed in a chain on the top level
+    base = cx["star"]
+    last = base
+    prev_n = 31
+    for k, (nn, ang) in enumerate([(18, 40), (24, 100), (28, 160)]):
+        q, _ = S.mesh_near(last, prev_n, nn, ang, tip(nn), 3.5, 3.9)
+        if q is None:
+            break
+        add("cal_wheel%d" % k, "wheel", f_wheel(nn, 0.3, 0.2), q[0], q[1], 3.6, cyl=(tip(nn), 0, 0.3), mat="steel")
+        add("arbor_calw%d" % k, "arbor", f_arbor(0.2, 1.0), q[0], q[1], 3.4, cyl=(0.2, 0, 1.0), mat="steel_dark")
+        add("cal_wheel_screw%d" % k, "screw_t", f_screw(0.4, 0.6), q[0], q[1], 4.4 - 0.6 * 0.4, mat="steel_blued")
+        last, prev_n = q, nn
 
 
 # --------------------------------------------------------------------------- checks
