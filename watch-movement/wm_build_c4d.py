@@ -104,7 +104,14 @@ def build(doc, parts, i0, i1):
     root = doc.SearchObject("WATCH")
     made = 0
     for p in parts[i0:i1]:
-        if doc.SearchObject(p["name"]):
+        old = doc.SearchObject(p["name"])
+        if old:
+            try:
+                po = old.GetDown().GetDown()
+                if po and not po.GetTag(c4d.Ttexture):
+                    W.assign_mat(doc, po, p["mat"])
+            except Exception:
+                pass
             continue
         mesh = p["make"]()
         parent = _group_null(doc, root, p["group"])

@@ -91,7 +91,7 @@ def get_mat(doc, key):
 
 
 def assign_mat(doc, obj, key):
-    tag = obj.MakeTag(c4d.Ttexturetag)
+    tag = obj.MakeTag(c4d.Ttexture)
     tag[c4d.TEXTURETAG_MATERIAL] = get_mat(doc, key)
     return tag
 
