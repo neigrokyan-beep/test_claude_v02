@@ -198,7 +198,8 @@ def animate(doc, parts, i0, i1):
 def _look(pos, tgt):
     d = c4d.Vector(tgt[0] - pos[0], tgt[1] - pos[1], tgt[2] - pos[2])
     d.Normalize()
-    return math.atan2(d.x, d.z), math.asin(max(-1.0, min(1.0, d.y)))
+    # C4D: positive heading turns the camera towards -X, positive pitch looks up
+    return -math.atan2(d.x, d.z), math.asin(max(-1.0, min(1.0, d.y)))
 
 
 def camera_keys():
