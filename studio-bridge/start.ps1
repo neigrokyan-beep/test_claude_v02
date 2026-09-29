@@ -21,46 +21,93 @@ $gwPy = Join-Path $Root "gateway\.venv\Scripts\python.exe"
 if (-not (Test-Path $cfgPath) -or -not (Test-Path $gwPy)) { throw "Run install.cmd first." }
 $token = (Get-Content $cfgPath -Raw | ConvertFrom-Json).token
 
-$procs = @()
+# Log lines are shown on screen when something fails: never print the secret token.
+function Show-Log($path, $lines = 25) {
+    if (-not (Test-Path $path)) { Write-Host "    (no log file: $path)" -ForegroundColor DarkGray; return }
+    Get-Content $path -Tail $lines -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host ("    | " + $_.Replace($token, "<TOKEN>")) -ForegroundColor DarkGray
+    }
+}
+
+function Stop-Tree($id) { & taskkill /T /F /PID $id 2>&1 | Out-Null }
+
+# A previous run that was not stopped cleanly keeps the port and a stale tunnel.
+# That looks fine on screen but is the old code and an old address - clear it first.
+Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ExecutablePath -like "$Root*" } | ForEach-Object { Stop-Tree $_.ProcessId }
+$owners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+foreach ($id in $owners) {
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue
+    if ($proc -and $proc.CommandLine -like "*gateway.py*") {
+        Write-Host "Stopping a previous gateway that was still running (pid $id)." -ForegroundColor Yellow
+        Stop-Tree $id
+        Start-Sleep -Seconds 1
+    } else {
+        throw "Port $Port is used by another program (pid $id). Close it, or run: start.cmd -Port 8790"
+    }
+}
+
+# name -> process, so a failure can say which part died.
+$procs = [ordered]@{}
+function Start-Part($name, $file, $arguments, $errLog, $outLog) {
+    $p = Start-Process -FilePath $file -ArgumentList $arguments -PassThru -WindowStyle Hidden `
+        -RedirectStandardError $errLog -RedirectStandardOutput $outLog
+    $null = $p.Handle  # keeps ExitCode readable after the process ends
+    $script:procs[$name] = @{ Process = $p; Log = $errLog; Out = $outLog }
+}
+
 try {
     Write-Host "Starting gateway on 127.0.0.1:$Port ..." -ForegroundColor Cyan
     $gwLog = Join-Path $Logs "gateway.log"
-    $procs += Start-Process -FilePath $gwPy -PassThru -WindowStyle Hidden `
-        -ArgumentList @("`"$(Join-Path $Root 'gateway\gateway.py')`"", "--config", "`"$cfgPath`"", "--port", $Port) `
-        -RedirectStandardError $gwLog -RedirectStandardOutput (Join-Path $Logs "gateway.out.log")
+    Start-Part "gateway" $gwPy @("`"$(Join-Path $Root 'gateway\gateway.py')`"", "--config", "`"$cfgPath`"", "--port", $Port) `
+        $gwLog (Join-Path $Logs "gateway.out.log")
 
     $up = $false
     for ($i = 0; $i -lt 40 -and -not $up; $i++) {
         Start-Sleep -Milliseconds 500
-        if ($procs[0].HasExited) { break }
+        if ($procs["gateway"].Process.HasExited) { break }
         try { $c = New-Object Net.Sockets.TcpClient("127.0.0.1", $Port); $c.Close(); $up = $true } catch { }
     }
-    if (-not $up) { Get-Content $gwLog -Tail 30; throw "Gateway did not start (see $gwLog)" }
+    if (-not $up) { Show-Log $gwLog; throw "The gateway did not start (log above)." }
 
     if ($PublicUrl) {
         $base = $PublicUrl.TrimEnd("/")
     } elseif ($NgrokDomain) {
         if (-not (Get-Command ngrok -ErrorAction SilentlyContinue)) { throw "ngrok not found: winget install ngrok.ngrok; ngrok config add-authtoken <token>" }
-        $procs += Start-Process -FilePath "ngrok" -PassThru -WindowStyle Hidden `
-            -ArgumentList @("http", "--url=$NgrokDomain", "$Port", "--log=stdout") `
-            -RedirectStandardOutput (Join-Path $Logs "tunnel.log")
+        $tLog = Join-Path $Logs "tunnel.log"
+        Start-Part "tunnel" "ngrok" @("http", "--url=$NgrokDomain", "$Port", "--log=stdout") (Join-Path $Logs "tunnel.err.log") $tLog
         $base = "https://$NgrokDomain"
     } else {
         $cf = Join-Path $Root "bin\cloudflared.exe"
         $tLog = Join-Path $Logs "tunnel.log"
         Remove-Item $tLog -ErrorAction SilentlyContinue
-        $procs += Start-Process -FilePath $cf -PassThru -WindowStyle Hidden `
-            -ArgumentList @("tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:$Port") `
-            -RedirectStandardError $tLog -RedirectStandardOutput (Join-Path $Logs "tunnel.out.log")
+        Start-Part "tunnel" $cf @("tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://127.0.0.1:$Port") `
+            $tLog (Join-Path $Logs "tunnel.out.log")
         $base = $null
         for ($i = 0; $i -lt 60 -and -not $base; $i++) {
             Start-Sleep -Seconds 1
+            if ($procs["tunnel"].Process.HasExited) { break }
             if (Test-Path $tLog) {
                 $m = Select-String -Path $tLog -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -First 1
                 if ($m) { $base = $m.Matches[0].Value }
             }
         }
-        if (-not $base) { Get-Content $tLog -Tail 30; throw "Tunnel did not come up (see $tLog)" }
+        if (-not $base) { Show-Log $tLog; throw "The tunnel did not come up (log above)." }
+        # The address is announced before Cloudflare accepts traffic; wait until it really answers.
+        Write-Host "Waiting for the tunnel to become reachable ..." -ForegroundColor Cyan
+        $reach = $false
+        for ($i = 0; $i -lt 45 -and -not $reach; $i++) {
+            if ($procs["tunnel"].Process.HasExited) { break }
+            try {
+                $r = Invoke-WebRequest -UseBasicParsing -Uri "$base/health-check-$token/mcp" -TimeoutSec 5 -ErrorAction Stop
+                $reach = $true
+            } catch {
+                # 404 from our gateway means the request got through the tunnel.
+                if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { $reach = $true }
+                else { Start-Sleep -Seconds 2 }
+            }
+        }
+        if (-not $reach) { Write-Host "The tunnel address did not answer yet; trying anyway." -ForegroundColor Yellow }
     }
 
     $url = "$base/$token/mcp"
@@ -69,7 +116,7 @@ try {
 
     Write-Host ""
     Write-Host "Connector URL (copied to clipboard, also in connector-url.txt):" -ForegroundColor Green
-    Write-Host "  $url" -ForegroundColor Yellow
+    Write-Host "  $base/<TOKEN>/mcp   (the real one is in your clipboard)" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "claude.ai -> Settings -> Connectors -> Add custom connector -> paste the URL."
     if (-not $NgrokDomain -and -not $PublicUrl) {
@@ -79,13 +126,20 @@ try {
 
     while ($true) {
         Start-Sleep -Seconds 2
-        foreach ($p in $procs) {
-            if ($p.HasExited) { throw "$($p.ProcessName) exited (code $($p.ExitCode)); see logs in $Logs" }
+        foreach ($name in $procs.Keys) {
+            $part = $procs[$name]
+            if ($part.Process.HasExited) {
+                Write-Host ""
+                Write-Host "!! The $name stopped by itself (exit code $($part.Process.ExitCode)). Last log lines:" -ForegroundColor Red
+                Show-Log $part.Log
+                Show-Log $part.Out 10
+                throw "$name stopped (details above). Close this window and run start.cmd again."
+            }
         }
     }
 }
 finally {
     # /T also stops the per-app MCP servers the gateway spawned.
-    foreach ($p in $procs) { if ($p -and -not $p.HasExited) { & taskkill /T /F /PID $p.Id 2>&1 | Out-Null } }
+    foreach ($part in $procs.Values) { if (-not $part.Process.HasExited) { Stop-Tree $part.Process.Id } }
     Write-Host "Stopped."
 }
