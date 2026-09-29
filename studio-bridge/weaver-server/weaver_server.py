@@ -552,6 +552,169 @@ def gsg_sheet(kind: str = "materials", collection: str = "", page: int = 0) -> A
     return _as_image(folder / want[0], 1800)
 
 
+# ------------------------------------------------------------------ Redshift material in Cinema 4D
+
+# The user's own loader (GSG asset -> Redshift Standard node material). Used as is, not rewritten.
+C4D_LOADER = "Projects/claude/Yogo_pro_keyboard/C4D/src/ykb_gsg.py"
+ASCII_NAME = re.compile(r"^[A-Za-z0-9_.\- ]{1,60}$")
+CODE_RE = re.compile(r"^[A-Z]{2}\d{3}_[A-Z]\d{3}$")
+
+
+def _num(v: Any, label: str, lo: float, hi: float) -> float:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not (lo <= float(v) <= hi):
+        raise ValueError(f"{label} must be a number in {lo}..{hi}")
+    return float(v)
+
+
+def _tuple3(v: Any, label: str, lo: float, hi: float) -> list[float]:
+    if not isinstance(v, (list, tuple)) or len(v) != 3:
+        raise ValueError(f"{label} must be a list of 3 numbers")
+    return [_num(x, label, lo, hi) for x in v]
+
+
+def _clean_spec(raw: dict[str, Any]) -> dict[str, Any]:
+    allowed = {"code", "name", "tile_mm", "space", "tint", "sss", "viewport_color", "apply_to"}
+    extra = set(raw) - allowed
+    if extra:
+        raise ValueError(f"unknown keys {sorted(extra)}; allowed: {sorted(allowed)}")
+    code = str(raw.get("code", "")).strip().upper()
+    if not CODE_RE.match(code):
+        raise ValueError(f"code must look like MC005_A012, got '{code}'")
+    asset = _find_asset(code)
+    if asset.kind != "materials":
+        raise ValueError(f"{code} is a {asset.kind} asset, not a material")
+    name = str(raw.get("name") or f"GSG_{code}")
+    if not ASCII_NAME.match(name):
+        raise ValueError(f"material name '{name}': use ASCII letters, digits, space, _ . - only (non-ASCII text crashes the C4D bridge)")
+    space = str(raw.get("space", "object"))
+    if space not in ("object", "world"):
+        raise ValueError("space must be 'object' (moving parts) or 'world' (static parts / instances)")
+    sss = raw.get("sss")
+    if sss is not None and sss is not False and sss is not True:
+        sss = _tuple2(sss, "sss")
+    targets = [str(t) for t in (raw.get("apply_to") or [])]
+    for t in targets:
+        if not ASCII_NAME.match(t):
+            raise ValueError(f"object name '{t}' in apply_to must be ASCII")
+    return {
+        "code": code,
+        "name": name,
+        "tile": _num(raw.get("tile_mm", 50.0), "tile_mm", 0.1, 100000),
+        "space": space,
+        "tint": None if raw.get("tint") is None else _tuple3(raw["tint"], "tint", 0.0, 4.0),
+        "sss": sss,
+        "vp": None if raw.get("viewport_color") is None else _tuple3(raw["viewport_color"], "viewport_color", 0, 255),
+        "apply": targets,
+    }
+
+
+def _tuple2(v: Any, label: str) -> list[float]:
+    if not isinstance(v, (list, tuple)) or len(v) != 2:
+        raise ValueError(f"{label} must be true, false, null or [amount, radius_mm]")
+    return [_num(v[0], label, 0.0, 1.0), _num(v[1], label, 0.0, 100.0)]
+
+
+def build_c4d_material_script(specs: list[dict[str, Any]], loader_dir: str, module: str, document: str) -> str:
+    """Python for the C4D bridge's execute_python. ASCII only, no 'import os' / exec / eval
+    (the bridge rejects those), never saves or renders."""
+    body = f'''import sys
+import importlib
+LOADER = {loader_dir!r}
+if LOADER not in sys.path:
+    sys.path.insert(0, LOADER)
+import {module} as gsg
+importlib.reload(gsg)
+
+DOC_NAME = {document!r}
+SPECS = {specs!r}
+
+target = doc
+if DOC_NAME:
+    target = None
+    d = c4d.documents.GetFirstDocument()
+    while d:
+        if d.GetDocumentName() == DOC_NAME:
+            target = d
+            break
+        d = d.GetNext()
+    if target is None:
+        raise RuntimeError("document is not open: " + DOC_NAME)
+
+
+def find_obj(o, name):
+    while o:
+        if o.GetName() == name:
+            return o
+        hit = find_obj(o.GetDown(), name)
+        if hit:
+            return hit
+        o = o.GetNext()
+    return None
+
+
+print("document: " + str(target.GetDocumentName()))
+for s in SPECS:
+    mats = [m for m in target.GetMaterials() if m.GetName() == s["name"]]
+    if mats:
+        mat = mats[0]
+        print("exists, reused: " + s["name"])
+    else:
+        vp = tuple(s["vp"]) if s["vp"] else None
+        tint = tuple(s["tint"]) if s["tint"] else None
+        sss = tuple(s["sss"]) if isinstance(s["sss"], list) else s["sss"]
+        mat = gsg.make(target, s["name"], s["code"], s["tile"], s["space"], tint, sss, vp)
+        print("created: " + s["name"] + " <- " + s["code"] + " tile " + str(s["tile"]) + " mm, " + s["space"] + " space")
+    for oname in s["apply"]:
+        obj = find_obj(target.GetFirstObject(), oname)
+        if obj is None:
+            print("object not found: " + oname)
+            continue
+        tag = obj.MakeTag(c4d.Ttexture)
+        tag[c4d.TEXTURETAG_MATERIAL] = mat
+        print("  applied to: " + oname)
+c4d.EventAdd()
+print("done")
+'''
+    body.encode("ascii")  # fails loudly if anything non-ASCII slipped in
+    for banned in ("import os", "from os import", "os.system", "subprocess", "exec(", "eval("):
+        if banned in body:
+            raise ValueError(f"generated script contains '{banned}', which the C4D bridge rejects")
+    return body
+
+
+@mcp.tool()
+def c4d_material_script(materials: list[dict[str, Any]], document: str = "") -> str:
+    """EXPERIMENTAL - the first live run closed the C4D bridge connection (cause not found yet). Ask the user
+    before running the result, and never in a scene with unsaved work.
+    Build the Python script that creates Redshift materials from GSG library assets in Cinema 4D,
+    using the user's own loader (Projects/claude/Yogo_pro_keyboard/C4D/src/ykb_gsg.py). Run the returned
+    text with c4d__execute_python_script. Nothing is executed here.
+
+    materials: list of {code, name?, tile_mm?, space?, tint?, sss?, viewport_color?, apply_to?}
+      code            GSG material code, e.g. 'MC005_A004' (see gsg_find)
+      name            material name in C4D, ASCII only (default 'GSG_<code>')
+      tile_mm         one texture repeat in mm, match the real part size (default 50)
+      space           'object' for moving parts, 'world' for static parts / instances (default 'object')
+      tint            [r, g, b] multiplier on the base colour map, e.g. [0.83, 0.69, 0.61]
+      sss             null = automatic (plastics with scatter maps), false = off, [amount, radius_mm]
+      viewport_color  [r, g, b] 0..255, colour in the C4D viewport
+      apply_to        names of objects that get a texture tag with this material
+    document: name of the open .c4d document (e.g. 'Yogo_pro_keyboard_v005.c4d'); empty = the active one.
+    Prefer naming the document: the active one may not be the scene you mean. An existing material with the
+    same name is reused, never overwritten."""
+    if not materials:
+        raise ValueError("materials is empty")
+    if len(materials) > 40:
+        raise ValueError("at most 40 materials per script; split the work")
+    if document and not re.match(r"^[A-Za-z0-9_.\- ]{1,120}\.c4d$", document):
+        raise ValueError("document must be an ASCII file name ending in .c4d")
+    loader = _vpath(C4D_LOADER)
+    if not loader.is_file():
+        raise FileNotFoundError(f"Loader not found in the vault: {C4D_LOADER}")
+    specs = [_clean_spec(m) for m in materials]
+    return build_c4d_material_script(specs, str(loader.parent), loader.stem, document)
+
+
 @mcp.tool()
 def gsg_reindex() -> str:
     """Rescan the library folders (after the user downloaded new assets)."""
