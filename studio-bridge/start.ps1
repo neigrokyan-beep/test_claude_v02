@@ -116,7 +116,7 @@ try {
 
     Write-Host ""
     Write-Host "Connector URL (copied to clipboard, also in connector-url.txt):" -ForegroundColor Green
-    Write-Host "  $base/<TOKEN>/mcp   (the real one is in your clipboard)" -ForegroundColor Yellow
+    Write-Host "  $url" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "claude.ai -> Settings -> Connectors -> Add custom connector -> paste the URL."
     if (-not $NgrokDomain -and -not $PublicUrl) {
