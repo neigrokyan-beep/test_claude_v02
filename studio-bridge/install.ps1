@@ -22,6 +22,10 @@ New-Item -ItemType Directory -Force -Path $Apps, (Join-Path $Root "bin"), (Join-
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Warn($msg) { Write-Host "    ! $msg" -ForegroundColor Yellow }
 function Ok($msg)   { Write-Host "    $msg" -ForegroundColor Green }
+function Info($msg) { Write-Host "    $msg ..." -ForegroundColor DarkGray }
+
+# Clicking inside a classic console window enters "select" mode and freezes the script.
+Write-Host "Tip: don't click inside this window while installing (press Esc if it looks stuck)." -ForegroundColor DarkYellow
 
 function Invoke-Checked {
     param([string]$Exe, [string[]]$Arguments)
@@ -49,6 +53,7 @@ if ([version]$ver -lt [version]"3.11") { throw "Python $ver found, 3.11+ is requ
 Ok "git ok, Python $ver ($PyExe $PyArgs)"
 
 function New-Venv($dir) {
+    Info "preparing Python environment in $dir"
     $py = Join-Path $dir ".venv\Scripts\python.exe"
     if (-not (Test-Path $py)) { Invoke-Checked $PyExe ($PyArgs + @("-m", "venv", (Join-Path $dir ".venv"))) }
     Invoke-Checked $py @("-m", "pip", "install", "-q", "--upgrade", "pip")
@@ -56,6 +61,7 @@ function New-Venv($dir) {
 }
 
 function Sync-Repo($url, $dir) {
+    Info "downloading $url"
     if (Test-Path (Join-Path $dir ".git")) {
         Invoke-Checked git @("-C", $dir, "pull", "-q", "--ff-only")
     } else {
@@ -68,7 +74,7 @@ $servers = [ordered]@{}
 # ---------------------------------------------------------------- gateway
 Step "Gateway"
 $GwPy = New-Venv (Join-Path $Root "gateway")
-Invoke-Checked $GwPy @("-m", "pip", "install", "-q", "-r", (Join-Path $Root "gateway\requirements.txt"))
+Invoke-Checked $GwPy @("-m", "pip", "install", "--progress-bar", "on", "-r", (Join-Path $Root "gateway\requirements.txt"))
 Ok "installed"
 
 # ---------------------------------------------------------------- Cinema 4D
@@ -77,7 +83,7 @@ if (-not $SkipC4D) {
     $dir = Join-Path $Apps "cinema4d-mcp"
     Sync-Repo "https://github.com/ttiimmaacc/cinema4d-mcp.git" $dir
     $py = New-Venv $dir
-    Invoke-Checked $py @("-m", "pip", "install", "-q", "-e", $dir)
+    Invoke-Checked $py @("-m", "pip", "install", "--progress-bar", "on", "-e", $dir)
 
     $plugin = Join-Path $dir "c4d_plugin\mcp_server_plugin.pyp"
     $prefs = Get-ChildItem (Join-Path $env:APPDATA "Maxon") -Directory -ErrorAction SilentlyContinue |
@@ -105,7 +111,7 @@ if (-not $SkipHoudini) {
     Sync-Repo "https://github.com/eetumartola/houdini-mcp.git" $dir
     $py = New-Venv $dir
     # The repo's pyproject.toml is malformed, so install the dependency directly.
-    Invoke-Checked $py @("-m", "pip", "install", "-q", "mcp[cli]>=1.2,<2")
+    Invoke-Checked $py @("-m", "pip", "install", "--progress-bar", "on", "mcp[cli]>=1.2,<2")
 
     $docs = [Environment]::GetFolderPath("MyDocuments")
     $hPrefs = Get-ChildItem $docs -Directory -Filter "houdini*" -ErrorAction SilentlyContinue |
@@ -154,7 +160,7 @@ if (-not $SkipFusion) {
     $dir = Join-Path $Apps "fusion-studio-mcp"
     Sync-Repo "https://github.com/bigsbypuglise/fusion-studio-mcp.git" $dir
     $py = New-Venv $dir
-    Invoke-Checked $py @("-m", "pip", "install", "-q", "-e", $dir)
+    Invoke-Checked $py @("-m", "pip", "install", "--progress-bar", "on", "-e", $dir)
 
     if (-not $FusionDll) {
         $cands = @()
