@@ -492,8 +492,9 @@ def _details(parts, S, add, cx):
         add("lug%d" % k, "case", (lambda: g.sweep([(0.0, 0.0, 0.0), (1.6, 0.0, 0.0), (3.2, 0.0, -0.6), (4.6, 0.0, -1.6)], 3.0, 2.0, k=2, corner=0.5)),
             x, y, 3.4, rot=ang, mat="steel_polished")
     for k in range(2):
-        x, y = polar(0, 0, 21.0, 90 + 180 * k)
-        add("spring_bar%d" % k, "arbor", f_arbor(0.4, 4.6), x, y, 1.6, mat="steel_polished")
+        y = 19.4 if k == 0 else -19.4
+        add("spring_bar%d" % k, "case", (lambda: g.sweep([(-4.2, 0.0, 0.0), (0.0, 0.0, 0.0), (4.2, 0.0, 0.0)], 0.8, 0.8, k=2, corner=1.0)),
+            0.0, y, 3.4 - 0.6, mat="steel_polished")
     add("crown_tube", "case", lambda: g.annulus(1.1, 0.6, 1.6, 24, bevel=0.03), 16.2, 0.0, 3.0, mat="steel_polished")
     add("crown_stem_cap", "case", f_disc(0.8, 0.3, 2, dome=0.15), 19.6, 0.0, 3.0, mat="steel_polished")
     add("second_hand", "hand", f_lever([(-2.4, 0.0), (0.0, 0.0), (9.0, 0.0), (12.4, 0.0)], 0.22, 0.08), 0, 0, 6.9, rot=200, mat="steel_polished")
