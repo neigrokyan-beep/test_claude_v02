@@ -331,7 +331,27 @@ def build():
     add("hour_hand", "hand", f_lever([(-1.2, 0.0), (0.0, 0.0), (5.0, 0.0), (7.2, 0.0)], 0.9, 0.16), 0, 0, 6.5, rot=290, mat="steel_polished")
     add("minute_hand", "hand", f_lever([(-1.6, 0.0), (0.0, 0.0), (7.0, 0.0), (11.4, 0.0)], 0.6, 0.14), 0, 0, 6.7, rot=60, mat="steel_polished")
     _details(parts, S, add, dict(B=B, C=C, T=T, F=F, E=E, BAL=BAL, PAL=PAL, CRW=CRW, wp=wp, moon=moon, star=star, bridges=bridges, feet=feet))
-    return _orient(parts)
+    return _mesh_phases(_orient(parts))
+
+
+MESH_PAIRS = [("barrel", "centre_pinion", 60, 8), ("centre_wheel", "third_pinion", 48, 8), ("third_wheel", "fourth_pinion", 44, 8),
+              ("fourth_wheel", "escape_pinion", 40, 6), ("minute_wheel", "hour_pinion", 32, 16), ("hour_pinion", "hour_wheel", 16, 36),
+              ("date_driver", "date_star", 20, 31), ("crown_wheel", "winding_pinion", 30, 14)]
+
+
+def _mesh_phases(parts):
+    """Turn every driven wheel so that a tooth of the driver points into a gap of the driven wheel.
+    Tooth centres sit at (j + 0.375) pitches, gap centres half a pitch later (see wm_geo._tooth_radial, 4 samples/tooth)."""
+    byname = {p["name"]: p for p in parts}
+    for a, b, na, nb in MESH_PAIRS:
+        A, Bp = byname.get(a), byname.get(b)
+        if not A or not Bp:
+            continue
+        th = math.atan2(Bp["pos"][1] - A["pos"][1], Bp["pos"][0] - A["pos"][0])
+        pb = 2 * math.pi / nb
+        beta = th + math.pi - 0.375 * pb - 0.5 * pb
+        Bp["rot"] = math.degrees(beta % pb)
+    return parts
 
 
 FIXED_GROUPS = ("case", "dial", "marker", "hand", "glass")

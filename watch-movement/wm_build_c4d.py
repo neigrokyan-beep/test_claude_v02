@@ -37,8 +37,8 @@ T = {
     "calplate": dict(t0=(245, 255), dur=(70, 70), lift=(20, 20), side=(0, 0), tumble=6, spin=0, ease=E_OUT),
     "screw_c": dict(t0=(300, 340), dur=(40, 50), lift=(7, 9), side=(0, 0), tumble=0, spin=3.0, ease=(0.3, 0.7, 0.5, 1.0)),
     "calring": dict(t0=(275, 285), dur=(60, 60), lift=(22, 22), side=(0, 0), tumble=4, spin=0, ease=E_OUT),
-    "moondisc": dict(t0=(300, 310), dur=(60, 60), lift=(18, 18), side=(0, 0), tumble=5, spin=0, ease=E_OUT),
-    "moon": dict(t0=(345, 355), dur=(40, 40), lift=(12, 12), side=(0, 0), tumble=0, spin=0, ease=E_OUT),
+    "moondisc": dict(t0=(288, 292), dur=(72, 72), lift=(7, 7), side=(0, 0), tumble=4, spin=0, ease=E_OUT),
+    "moon": dict(t0=(340, 345), dur=(40, 40), lift=(5, 5), side=(0, 0), tumble=0, spin=0, ease=E_OUT),
     "glass": dict(t0=(205, 300), dur=(95, 105), lift=(40, 46), side=(0, 3), tumble=10, spin=0, ease=Q_OUT),
     "dial": dict(t0=(385, 395), dur=(65, 65), lift=(70, 70), side=(0, 0), tumble=3, spin=0, ease=E_OUT),
     "case": dict(t0=(400, 410), dur=(75, 75), lift=(-70, -70), side=(0, 0), tumble=2, spin=0, ease=E_OUT),
@@ -216,8 +216,9 @@ def camera_keys():
         (200, (-5, 6.5, -14), (1, 4.8, 0), 40),
         (225, (9, 15, -30), (0, 5, 0), 50),        # glass layers over the calendar
         (290, (10, 21, -34), (0, 6.5, 0), 50),
-        (312, (mx + 11, 8.5, mz - 9), (mx, my, mz), 35),   # macro: moon disc
-        (385, (mx + 9, 9.5, mz - 10), (mx, my, mz), 35),
+        (300, (mx + 14, 9.5, mz - 15), (mx, my + 3.5, mz), 35),   # macro: moon disc comes down
+        (335, (mx + 12, 8.5, mz - 13), (mx, my + 2.0, mz), 35),
+        (385, (mx + 10, 8.5, mz - 11), (mx, my + 1.0, mz), 35),
         (410, (0, 36, -72), (0, 6, 0), 50),        # pull back: dial, case, crystal
         (470, (0, 30, -62), (0, 6.5, 0), 50),
         (500, (0, 27, -58), (0, 6.5, 0), 50),
@@ -259,3 +260,60 @@ def add_camera(doc, name="CAM_ANIM"):
     bd.SetSceneCamera(cam)
     c4d.EventAdd()
     return cam
+
+
+# ----------------------------------------------------------------------------- running movement
+RUN_FROM = 262
+ESC_DEG = 4.0  # escape wheel, degrees per frame; the rest follows the tooth ratios
+
+
+def _child_sds(doc, name):
+    n = doc.SearchObject(name)
+    return n.GetDown() if n else None
+
+
+def run_train(doc, parts):
+    """Wheels turn with real tooth ratios, balance swings, pallet fork rocks; returns number of animated parts."""
+    E = ESC_DEG
+    w_fourth = -E * 6.0 / 40.0
+    w_third = -w_fourth * 8.0 / 44.0
+    w_centre = -w_third * 8.0 / 48.0
+    w_barrel = -w_centre * 8.0 / 60.0
+    speeds = {"escape_wheel": E, "escape_pinion": E, "arbor_escape": E, "fourth_wheel": w_fourth, "fourth_pinion": w_fourth, "arbor_fourth": w_fourth,
+              "third_wheel": w_third, "third_pinion": w_third, "arbor_third": w_third, "centre_wheel": w_centre, "centre_pinion": w_centre,
+              "barrel": w_barrel}
+    n = 0
+    sign = _heading(1.0) / math.radians(1.0)
+    for nm, w in speeds.items():
+        s = _child_sds(doc, nm)
+        if s is None:
+            continue
+        for tr in list(s.GetCTracks()):
+            tr.Remove()
+        d = math.radians(w * (END - RUN_FROM)) * sign
+        W.set_track(s, c4d.ID_BASEOBJECT_REL_ROTATION, c4d.VECTOR_X, [(0, 0.0), (RUN_FROM, 0.0), (END, d)], FPS, linear=True)
+        n += 1
+    # balance: +-150 deg every 5 frames; pallet fork +-9 deg in opposite phase
+    swing = {}
+    for p in parts:
+        nm = p["name"]
+        if nm.startswith(("balance_rim", "balance_hub", "balance_arm", "balance_screw", "balance_staff", "poising_screw", "roller_table", "impulse_jewel", "hairspring_collet")) or nm == "arbor_balance":
+            swing[nm] = 150.0
+        elif nm in ("pallet_fork", "pallet_tail", "pallet_stone_in", "pallet_stone_out", "arbor_pallet"):
+            swing[nm] = -9.0
+    for nm, amp in swing.items():
+        s = _child_sds(doc, nm)
+        if s is None:
+            continue
+        for tr in list(s.GetCTracks()):
+            tr.Remove()
+        keys = [(0, 0.0), (RUN_FROM, 0.0)]
+        f, k = RUN_FROM + 5, 0
+        while f <= END:
+            keys.append((f, math.radians(amp) * sign * (1 if k % 2 == 0 else -1)))
+            f += 5
+            k += 1
+        W.set_track(s, c4d.ID_BASEOBJECT_REL_ROTATION, c4d.VECTOR_X, keys, FPS, (0.4, 0.0, 0.6, 1.0))
+        n += 1
+    c4d.EventAdd()
+    return n
