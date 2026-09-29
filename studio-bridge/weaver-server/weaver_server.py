@@ -1,0 +1,564 @@
+"""Weaver MCP server: the Obsidian vault and the Greyscalegorilla (GSG) library.
+
+Runs on the user's PC as one of the Studio Bridge apps. It gives a cloud Claude
+session what a local Claude Code session has: the Weaver vault (read / write with
+guard rails) and the GSG material, model and HDRI library (read only).
+
+Environment:
+    WEAVER_VAULT  vault root            (default G:\\todoist_obsidian_claude)
+    WEAVER_GSG    GSG library root      (default E:\\assets\\Greyscalegorilla Studio\\assets\\Greyscalegorilla_Library)
+
+Rules baked in (from the vault's own MAP.md / gsg-library skill):
+  - the GSG library is never written to;
+  - nothing is deleted; an overwritten file is first copied to Agent/History/<date>/;
+  - files that steer the local agent or are generated are not writable from here
+    (CLAUDE.md, AGENTS.md, .claude/, .agents/, Agent/Scripts, STATE.md, PROJECTS.md,
+    Eagle_lib, .obsidian, .git).
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import os
+import re
+import shutil
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from mcp.server.fastmcp import FastMCP, Image
+
+VAULT = Path(os.environ.get("WEAVER_VAULT", r"G:\todoist_obsidian_claude"))
+GSG = Path(
+    os.environ.get(
+        "WEAVER_GSG", r"E:\assets\Greyscalegorilla Studio\assets\Greyscalegorilla_Library"
+    )
+)
+
+TEXT_EXT = {".md", ".txt", ".json", ".py", ".js", ".yml", ".yaml", ".csv", ".canvas", ".css"}
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp", ".gif"}
+# Steer the local agent (which has a shell) or are generated / managed elsewhere.
+WRITE_BLOCK = (
+    "claude.md", "agents.md", ".claude", ".agents", ".git", ".obsidian", "eagle_lib",
+    "agent/history", "agent/scripts", "agent/state.md", "agent/projects.md",
+    "library/tutorial/houdini",
+)
+SEARCH_SKIP_DIRS = {".git", ".obsidian", "eagle_lib", "node_modules", "history"}
+MAX_WRITE_CHARS = 500_000
+
+mcp = FastMCP(
+    "Weaver",
+    instructions=(
+        "Obsidian vault (Weaver) and Greyscalegorilla library of the user's PC. "
+        "Start with weaver_context. Materials for scenes come from the GSG library: "
+        "gsg_find -> gsg_preview -> gsg_show (Redshift recipe with map paths)."
+    ),
+)
+
+
+# ------------------------------------------------------------------ helpers
+
+
+def _vroot() -> Path:
+    if not VAULT.is_dir():
+        raise FileNotFoundError(f"Vault folder not found: {VAULT} (set WEAVER_VAULT)")
+    return VAULT.resolve()
+
+
+def _gsg_root() -> Path:
+    if not GSG.is_dir():
+        raise FileNotFoundError(f"GSG library folder not found: {GSG} (set WEAVER_GSG)")
+    return GSG.resolve()
+
+
+def _vpath(rel: str) -> Path:
+    root = _vroot()
+    rel = (rel or "").replace("\\", "/").strip().lstrip("/")
+    if re.match(r"^[A-Za-z]:", rel):
+        raise ValueError("Use a path relative to the vault root, e.g. 'Projects/claude'")
+    p = (root / rel).resolve()
+    try:
+        p.relative_to(root)
+    except ValueError:
+        raise ValueError("Path is outside the vault") from None
+    return p
+
+
+def _rel(p: Path) -> str:
+    return p.relative_to(_vroot()).as_posix()
+
+
+def _writable(p: Path) -> None:
+    rel = _rel(p).lower()
+    for blocked in WRITE_BLOCK:
+        if rel == blocked or rel.startswith(blocked + "/"):
+            raise PermissionError(
+                f"'{_rel(p)}' is protected (agent instructions, generated or managed by another tool). "
+                "Ask the user to change it."
+            )
+    if p.suffix.lower() not in TEXT_EXT:
+        raise PermissionError(f"Only text files can be written ({', '.join(sorted(TEXT_EXT))}).")
+
+
+def _backup(p: Path) -> str | None:
+    if not p.exists():
+        return None
+    now = datetime.now()
+    folder = _vroot() / "Agent" / "History" / now.strftime("%Y-%m-%d")
+    folder.mkdir(parents=True, exist_ok=True)
+    name = "__".join(p.relative_to(_vroot()).parts)
+    dst = folder / name
+    if dst.exists():
+        dst = folder / f"{now:%H%M%S}_{name}"
+    shutil.copy2(p, dst)
+    return dst.relative_to(_vroot()).as_posix()
+
+
+def _read_text(p: Path) -> str:
+    data = p.read_bytes()
+    for enc in ("utf-8-sig", "cp1251"):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
+def _as_image(p: Path, max_px: int) -> Image:
+    from PIL import Image as PILImage
+
+    try:
+        im = PILImage.open(p)
+        im.load()
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"Cannot open {p.name} as an image ({type(exc).__name__}); EXR/HDR are not supported") from exc
+    if im.mode in ("RGBA", "LA", "P"):
+        im = im.convert("RGBA")
+        bg = PILImage.new("RGB", im.size, (128, 128, 128))
+        bg.paste(im, mask=im.split()[-1])
+        im = bg
+    elif im.mode != "RGB":
+        im = im.convert("RGB")
+    im.thumbnail((max_px, max_px))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=85)
+    return Image(data=buf.getvalue(), format="jpeg")
+
+
+# ------------------------------------------------------------------ vault
+
+
+@mcp.tool()
+def weaver_context() -> str:
+    """Load the vault's entry context: CLAUDE.md with its @-imported files (START, STATE, MAP, PROJECTS).
+    Call this first when starting work. Note: it is written for a local Claude Code on the PC; in this
+    cloud session use the weaver__ tools instead of direct file access."""
+    root = _vroot()
+    entry = root / "CLAUDE.md"
+    if not entry.is_file():
+        raise FileNotFoundError(f"CLAUDE.md not found in {root}")
+    out: list[str] = []
+    for line in _read_text(entry).splitlines():
+        m = re.match(r"^@(\S+\.md)\s*$", line.strip())
+        if not m:
+            out.append(line)
+            continue
+        sub = (root / m.group(1)).resolve()
+        try:
+            sub.relative_to(root)
+            body = _read_text(sub)[:40_000]
+        except (ValueError, OSError):
+            body = "(unavailable)"
+        out.append(f"\n----- {m.group(1)} -----\n{body}\n----- end {m.group(1)} -----\n")
+    return "\n".join(out)
+
+
+@mcp.tool()
+def vault_list(path: str = "", depth: int = 1, max_entries: int = 300) -> str:
+    """List a vault folder. path is relative to the vault root ('' = root). depth 1-3."""
+    base = _vpath(path)
+    if not base.is_dir():
+        raise NotADirectoryError(f"Not a folder: {path}")
+    depth = max(1, min(depth, 3))
+    lines: list[str] = []
+
+    def walk(d: Path, level: int) -> None:
+        try:
+            entries = sorted(os.scandir(d), key=lambda e: (not e.is_dir(), e.name.lower()))
+        except OSError as exc:
+            lines.append("  " * level + f"(unreadable: {exc})")
+            return
+        for e in entries:
+            if len(lines) >= max_entries:
+                return
+            if e.is_dir():
+                lines.append("  " * level + e.name + "/")
+                # Eagle_lib holds tens of thousands of items: show it, don't descend.
+                if level + 1 < depth and e.name.lower() != "eagle_lib":
+                    walk(Path(e.path), level + 1)
+            else:
+                try:
+                    size = e.stat().st_size
+                except OSError:
+                    size = -1
+                lines.append("  " * level + f"{e.name}  ({size} B)")
+
+    walk(base, 0)
+    if len(lines) >= max_entries:
+        lines.append(f"... truncated at {max_entries} entries; list a subfolder")
+    return "\n".join(lines) or "(empty)"
+
+
+@mcp.tool()
+def vault_read(path: str, offset: int = 0, limit: int = 60000) -> str:
+    """Read a text file from the vault (path relative to the vault root). Long files: use offset/limit (characters)."""
+    p = _vpath(path)
+    if not p.is_file():
+        raise FileNotFoundError(f"Not a file: {path}")
+    if p.suffix.lower() in IMAGE_EXT:
+        raise ValueError("This is an image: use view_image")
+    if p.stat().st_size > 5_000_000:
+        raise ValueError("File is larger than 5 MB")
+    text = _read_text(p)
+    chunk = text[offset : offset + limit]
+    tail = "" if offset + limit >= len(text) else f"\n[... {len(text) - offset - limit} more characters; call again with offset={offset + limit}]"
+    return chunk + tail
+
+
+@mcp.tool()
+def vault_search(query: str, folder: str = "", regex: bool = False, max_results: int = 60) -> str:
+    """Search text inside vault notes and scripts (case-insensitive). folder narrows the search."""
+    base = _vpath(folder)
+    pat = re.compile(query if regex else re.escape(query), re.IGNORECASE)
+    hits: list[str] = []
+    started = time.monotonic()
+    root = _vroot()
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = [d for d in dirnames if d.lower() not in SEARCH_SKIP_DIRS]
+        for name in filenames:
+            if Path(name).suffix.lower() not in TEXT_EXT:
+                continue
+            fp = Path(dirpath) / name
+            try:
+                if fp.stat().st_size > 1_500_000:
+                    continue
+                for i, line in enumerate(_read_text(fp).splitlines(), 1):
+                    if pat.search(line):
+                        hits.append(f"{fp.relative_to(root).as_posix()}:{i}: {line.strip()[:200]}")
+                        if len(hits) >= max_results:
+                            return "\n".join(hits) + f"\n[stopped at {max_results} results]"
+            except OSError:
+                continue
+        if time.monotonic() - started > 25:
+            return "\n".join(hits) + "\n[stopped: 25 s limit, narrow the folder]"
+    return "\n".join(hits) or "no matches"
+
+
+@mcp.tool()
+def vault_write(path: str, content: str, mode: str = "create") -> str:
+    """Write a text note or script in the vault.
+    mode: 'create' (fails if the file exists), 'overwrite' (the old version is copied to
+    Agent/History/<date>/ first), 'append'. Nothing can be deleted. Protected: CLAUDE.md, AGENTS.md,
+    .claude/, .agents/, Agent/Scripts, Agent/STATE.md, Agent/PROJECTS.md, Eagle_lib, .obsidian, .git."""
+    if mode not in ("create", "overwrite", "append"):
+        raise ValueError("mode must be create, overwrite or append")
+    if len(content) > MAX_WRITE_CHARS:
+        raise ValueError(f"Content is larger than {MAX_WRITE_CHARS} characters")
+    p = _vpath(path)
+    _writable(p)
+    if p.is_dir():
+        raise IsADirectoryError(path)
+    backup = None
+    if p.exists() and mode == "create":
+        raise FileExistsError(f"{path} exists; use mode='overwrite' or 'append'")
+    if p.exists() and mode in ("overwrite", "append"):
+        backup = _backup(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if mode == "append":
+        with open(p, "a", encoding="utf-8", newline="") as f:
+            f.write(content)
+    else:
+        tmp = p.with_name(p.name + ".tmp-weaver")
+        with open(tmp, "w", encoding="utf-8", newline="") as f:
+            f.write(content)
+        os.replace(tmp, p)
+    return f"written {_rel(p)} ({mode})" + (f"; previous version saved to {backup}" if backup else "")
+
+
+@mcp.tool()
+def view_image(path: str, max_px: int = 900) -> Image:
+    """Look at an image: a vault file (relative path) or a file inside the GSG library (absolute path
+    from gsg_show). Returned downscaled. PNG/JPG/TIF/WEBP only, no EXR/HDR."""
+    raw = (path or "").strip()
+    p: Path | None = None
+    if re.match(r"^[A-Za-z]:|^/", raw) and Path(raw).is_absolute():
+        cand = Path(raw).resolve()
+        for root in (_gsg_root(), _vroot()):
+            try:
+                cand.relative_to(root)
+                p = cand
+                break
+            except ValueError:
+                continue
+        if p is None:
+            raise ValueError("Only files inside the vault or the GSG library can be viewed")
+    else:
+        p = _vpath(raw)
+    if not p.is_file():
+        raise FileNotFoundError(f"Not a file: {path}")
+    if p.suffix.lower() not in IMAGE_EXT:
+        raise ValueError(f"Not a supported image type: {p.suffix}")
+    return _as_image(p, max(128, min(max_px, 2000)))
+
+
+# ------------------------------------------------------------------ GSG library
+
+ASSET_RE = re.compile(r"^GSG_(?P<coll>[A-Za-z]{1,4}\d{2,4})_(?P<num>[A-Za-z]?\d{1,4})_(?P<name>.+)$")
+MAP_RE = re.compile(r"_(?P<res>\d+k)_(?P<map>[A-Za-z0-9_]+?)\.(?P<ext>jpg|jpeg|png|tif|tiff|exr)$", re.IGNORECASE)
+KINDS = ("materials", "models", "hdris", "textures", "gobos", "bokeh")
+
+
+@dataclass
+class Asset:
+    kind: str
+    path: str
+    folder: str
+    coll: str
+    num: str
+    name: str
+    category: str = ""
+
+    @property
+    def code(self) -> str:
+        return f"{self.coll}_{self.num}".upper()
+
+
+_INDEX: dict[str, list[Asset]] | None = None
+
+
+def _index() -> dict[str, list[Asset]]:
+    global _INDEX
+    if _INDEX is not None:
+        return _INDEX
+    root = _gsg_root()
+    idx: dict[str, list[Asset]] = {}
+    for kind in KINDS:
+        base = root / kind
+        items: list[Asset] = []
+
+        def walk(d: str, depth: int, cat: str) -> None:
+            try:
+                entries = list(os.scandir(d))
+            except OSError:
+                return
+            for e in entries:
+                if not e.is_dir():
+                    continue
+                m = ASSET_RE.match(e.name)
+                if m:
+                    items.append(Asset(kind, e.path, e.name, m["coll"].upper(), m["num"].upper(),
+                                       m["name"].replace("_", " "), cat))
+                elif depth < 2:
+                    walk(e.path, depth + 1, e.name if depth == 0 else cat)
+
+        if base.is_dir():
+            walk(str(base), 0, "")
+        items.sort(key=lambda a: (a.coll, a.num))
+        idx[kind] = items
+    _INDEX = idx
+    return idx
+
+
+def _describe(a: Asset) -> str:
+    cat = f" [{a.category}]" if a.category else ""
+    return f"{a.code}  {a.name}{cat}  ({a.kind})"
+
+
+def _find_asset(ref: str) -> Asset:
+    ref = ref.strip()
+    up = ref.upper()
+    for items in _index().values():
+        for a in items:
+            if a.code == up or a.folder.lower() == ref.lower():
+                return a
+    raise KeyError(f"No GSG asset '{ref}'. Use gsg_find to search.")
+
+
+@mcp.tool()
+def gsg_stats() -> str:
+    """Overview of the GSG library: asset counts per kind and the biggest collections."""
+    idx = _index()
+    lines = [f"library: {_gsg_root()}"]
+    for kind, items in idx.items():
+        if not items:
+            continue
+        colls: dict[str, int] = {}
+        for a in items:
+            colls[a.coll] = colls.get(a.coll, 0) + 1
+        top = ", ".join(f"{c}({n})" for c, n in sorted(colls.items(), key=lambda x: -x[1])[:8])
+        lines.append(f"{kind}: {len(items)} assets in {len(colls)} collections; biggest: {top}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def gsg_guide() -> str:
+    """The user's own guide to the GSG library (which collection has what: metals, plastics, wood, HDRI ...
+    and how to apply materials in Redshift). Read it before choosing materials."""
+    p = _vroot() / ".claude" / "skills" / "gsg-library" / "SKILL.md"
+    if not p.is_file():
+        raise FileNotFoundError("Guide not found: .claude/skills/gsg-library/SKILL.md in the vault")
+    return _read_text(p)
+
+
+@mcp.tool()
+def gsg_find(query: str, kind: str = "materials", collection: str = "", n: int = 25) -> str:
+    """Search GSG assets by words in the English name, e.g. 'anodized aluminum', 'oak', 'studio'.
+    kind: materials | models | hdris | textures | gobos | bokeh | all. collection: e.g. MC005.
+    Returns codes for gsg_show / gsg_preview."""
+    idx = _index()
+    kinds = list(idx) if kind == "all" else [kind]
+    if any(k not in idx for k in kinds):
+        raise ValueError(f"kind must be one of {', '.join(idx)} or all")
+    tokens = [t for t in re.split(r"\s+", query.lower().strip()) if t]
+    scored: list[tuple[int, Asset]] = []
+    for k in kinds:
+        for a in idx[k]:
+            if collection and a.coll != collection.upper():
+                continue
+            hay = f"{a.name} {a.code} {a.coll} {a.category}".lower()
+            words = set(re.split(r"[^a-z0-9]+", hay))
+            if all(t in hay for t in tokens):
+                scored.append((sum(2 if t in words else 1 for t in tokens), a))
+    scored.sort(key=lambda x: (-x[0], x[1].code))
+    total = len(scored)
+    rows = [_describe(a) for _, a in scored[: max(1, min(n, 100))]]
+    if not rows:
+        return "no matches (try fewer or different words, or gsg_guide / gsg_collection)"
+    return f"{total} match(es), showing {len(rows)}:\n" + "\n".join(rows)
+
+
+@mcp.tool()
+def gsg_collection(code: str, kind: str = "") -> str:
+    """List every asset of one collection, e.g. MC005 (Tech materials) or HC005 (HDRI Studio vol.2)."""
+    up = code.upper()
+    rows = [
+        _describe(a)
+        for k, items in _index().items()
+        if not kind or k == kind
+        for a in items
+        if a.coll == up
+    ]
+    if not rows:
+        return f"no assets in collection {up}"
+    return f"{len(rows)} asset(s) in {up}:\n" + "\n".join(rows)
+
+
+def _colorspace(map_name: str) -> str:
+    # Colour maps are sRGB; data maps (roughness, normal, height, metallic, weights) are Raw.
+    return "sRGB" if map_name.lower().endswith("color") else "Raw"
+
+
+@mcp.tool()
+def gsg_show(code: str) -> str:
+    """Full card of one asset: files, texture maps by resolution with colour space, .gsgm parameters
+    (Autodesk Standard Surface, maps 1:1 onto Redshift Standard Material), preview path, FBX/EXR paths."""
+    a = _find_asset(code)
+    folder = Path(a.path)
+    maps: dict[str, dict[str, str]] = {}
+    other: list[str] = []
+    preview = None
+    gsgm: dict[str, Any] | None = None
+    for f in sorted(folder.iterdir()):
+        if not f.is_file():
+            continue
+        low = f.name.lower()
+        if low.endswith(".gsgm"):
+            try:
+                gsgm = json.loads(_read_text(f))
+            except (OSError, ValueError):
+                gsgm = None
+        elif "_preview." in low:
+            preview = str(f)
+        else:
+            m = MAP_RE.search(f.name)
+            if m and a.kind in ("materials", "textures", "hdris"):
+                maps.setdefault(m["map"].lower(), {})[m["res"].lower()] = str(f)
+            else:
+                other.append(str(f))
+
+    def res_key(r: str) -> int:
+        return int(r[:-1]) if r[:-1].isdigit() else 0
+
+    card: dict[str, Any] = {
+        "code": a.code, "name": a.name, "kind": a.kind, "collection": a.coll,
+        "folder": a.path, "preview": preview,
+    }
+    if maps:
+        card["maps"] = {
+            name: {
+                "colorspace": _colorspace(name),
+                "resolutions": sorted(files, key=res_key, reverse=True),
+                "best": files[max(files, key=res_key)],
+                "files": files,
+            }
+            for name, files in sorted(maps.items())
+        }
+    if gsgm:
+        params = gsgm.get("params", gsgm)
+        card["gsgm"] = {"name": gsgm.get("name"), "params": params}
+    if other:
+        card["files"] = other
+    if a.kind == "materials":
+        card["redshift_notes"] = [
+            "standard_surface names map 1:1 to RS Standard Material (base_color, specular_roughness, specular_IOR, coat, sheen, subsurface, transmission...)",
+            "transmission depth: GSG is in metres, Redshift in mm (multiply by 1000)",
+            "no usable UVs: use TriPlanar in object space; tile size in mm matched to the real object size",
+            "normal map = tangent space, via RS Bump Map (input type Tangent-Space Normal), texture colour space Raw",
+            "texture levels: 4k close-up, 2k/1k mid shot, reduced copies for scatter; copy reduced maps into the task's Assets/Textures, never write to the library",
+        ]
+    return json.dumps(card, ensure_ascii=False, indent=1)
+
+
+@mcp.tool()
+def gsg_preview(code: str, max_px: int = 640) -> Image:
+    """See what an asset looks like (its _preview image, downscaled)."""
+    a = _find_asset(code)
+    folder = Path(a.path)
+    cands = sorted(folder.glob("*_preview.*")) or sorted(
+        f for f in folder.iterdir() if f.suffix.lower() in IMAGE_EXT
+    )
+    if not cands:
+        raise FileNotFoundError(f"{a.code} has no preview image")
+    return _as_image(cands[0], max(128, min(max_px, 1600)))
+
+
+@mcp.tool()
+def gsg_sheet(kind: str = "materials", collection: str = "", page: int = 0) -> Any:
+    """Contact sheets of previews from the vault (Agent/gsg_sheets/<kind>/<collection>_NN.jpg): a grid
+    of a whole collection with code + name captions, the fastest way to choose by eye. Without a
+    page it lists the available sheets; with page N it returns that sheet as an image."""
+    folder = _vroot() / "Agent" / "gsg_sheets" / kind
+    if not folder.is_dir():
+        raise FileNotFoundError(f"No sheets for '{kind}' (Agent/gsg_sheets/{kind}); ask the user to run gsg_tools.py sheets")
+    files = sorted(f.name for f in folder.glob("*.jpg") if not collection or f.name.upper().startswith(collection.upper() + "_"))
+    if not page:
+        return "\n".join(files) or "no sheets match"
+    want = [f for f in files if f.rsplit("_", 1)[-1].split(".")[0].lstrip("0") == str(page)]
+    if not want:
+        return "sheet not found; available:\n" + "\n".join(files)
+    return _as_image(folder / want[0], 1800)
+
+
+@mcp.tool()
+def gsg_reindex() -> str:
+    """Rescan the library folders (after the user downloaded new assets)."""
+    global _INDEX
+    _INDEX = None
+    return gsg_stats()
+
+
+if __name__ == "__main__":
+    mcp.run()

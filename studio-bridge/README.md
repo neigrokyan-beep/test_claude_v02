@@ -1,4 +1,4 @@
-# Studio Bridge — Cinema 4D, Houdini и Fusion для Claude из облака
+# Studio Bridge — Cinema 4D, Houdini, Fusion, Nuke, Obsidian и библиотека GSG для Claude из облака
 
 Облачная сессия Claude не видит твой ПК. Studio Bridge решает это так:
 
@@ -21,6 +21,27 @@ claude.ai (облако) ──HTTPS──► туннель (cloudflared / ngro
 | Houdini | [eetumartola/houdini-mcp](https://github.com/eetumartola/houdini-mcp) |
 | Fusion Studio | [bigsbypuglise/fusion-studio-mcp](https://github.com/bigsbypuglise/fusion-studio-mcp) |
 | Nuke | [kleer001/nuke-mcp](https://github.com/kleer001/nuke-mcp) (панель NukeMCP в Nuke, порт 54321) |
+| Obsidian + библиотека GSG | свой сервер `weaver-server/` (ниже) |
+
+## Weaver: хранилище Obsidian и библиотека материалов GSG
+
+Сервер `weaver-server/weaver_server.py` (инструменты `weaver__…`) даёт облачной сессии то же, что локальному
+Claude Code на ПК. Пути по умолчанию: хранилище `G:\todoist_obsidian_claude`, библиотека
+`E:\assets\Greyscalegorilla Studio\assets\Greyscalegorilla_Library`. Если у тебя другие:
+`install.cmd -Vault "X:\..." -Gsg "X:\..."`.
+
+| Инструменты | Что делают |
+|---|---|
+| `weaver_context` | вход в хранилище: `CLAUDE.md` с START, STATE, MAP, PROJECTS |
+| `vault_list` · `vault_read` · `vault_search` | смотреть папки, читать и искать по заметкам и скриптам |
+| `vault_write` | создать, дописать или перезаписать текстовый файл; перед перезаписью старая версия уходит в `Agent/History/<дата>/`; удалять нельзя |
+| `view_image` | посмотреть картинку из хранилища или библиотеки |
+| `gsg_stats` · `gsg_guide` · `gsg_find` · `gsg_collection` · `gsg_sheet` | обзор библиотеки, твой гайд «что где», поиск по названию, коллекция целиком, листы превью |
+| `gsg_preview` · `gsg_show` · `gsg_reindex` | превью ассета; карточка: карты по разрешениям с цветовым пространством, параметры Standard Surface, пути; пересканировать библиотеку |
+
+Защита: библиотека только для чтения. Из облака нельзя писать в `CLAUDE.md`, `AGENTS.md`, `.claude/`, `.agents/`,
+`Agent/Scripts/`, `STATE.md`, `PROJECTS.md`, `Eagle_lib/`, `.obsidian/`, `.git/`: это файлы, которыми управляется
+локальный агент на ПК, и записать в них чужое значило бы дать команды программе с доступом к оболочке.
 
 ## 1. Установка (один раз)
 

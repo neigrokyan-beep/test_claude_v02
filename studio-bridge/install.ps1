@@ -12,7 +12,10 @@ param(
     [switch]$SkipC4D,
     [switch]$SkipHoudini,
     [switch]$SkipFusion,
-    [switch]$SkipNuke
+    [switch]$SkipNuke,
+    [switch]$SkipWeaver,
+    [string]$Vault = "G:\todoist_obsidian_claude",
+    [string]$Gsg = "E:\assets\Greyscalegorilla Studio\assets\Greyscalegorilla_Library"
 )
 
 $ErrorActionPreference = "Stop"
@@ -220,6 +223,20 @@ if (-not $SkipNuke) {
         command = $py
         args    = @("-c", "from nukemcp.server import main; main()", "--port", "54321")
         cwd     = $dir; timeout = 300
+    }
+}
+
+# ---------------------------------------------------------------- Weaver (vault + GSG library)
+if (-not $SkipWeaver) {
+    Step "Weaver server (Obsidian vault + GSG library)"
+    $dir = Join-Path $Root "weaver-server"
+    $py = New-Venv $dir
+    Invoke-Checked $py @("-m", "pip", "install", "--progress-bar", "on", "mcp>=1.26,<2", "pillow")
+    if (-not (Test-Path $Vault)) { Warn "Vault folder not found: $Vault  (re-run with -Vault 'X:\path')" } else { Ok "vault: $Vault" }
+    if (-not (Test-Path $Gsg))   { Warn "GSG library not found: $Gsg  (re-run with -Gsg 'X:\path')" } else { Ok "GSG library: $Gsg" }
+    $servers["weaver"] = [ordered]@{
+        command = $py; args = @("weaver_server.py"); cwd = $dir; timeout = 120
+        env = [ordered]@{ WEAVER_VAULT = $Vault; WEAVER_GSG = $Gsg; PYTHONUTF8 = "1" }
     }
 }
 
