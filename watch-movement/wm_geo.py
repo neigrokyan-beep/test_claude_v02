@@ -79,10 +79,19 @@ def validate(m):
     for q in m.quads:
         if len(set(q)) < 4:
             degenerate += 1
+    # coincident points (used points closer than 1e-6)
+    seen = {}
+    coincident = 0
+    for i in val:
+        p = m.pts[i]
+        k = (round(p[0] * 1e5), round(p[1] * 1e5), round(p[2] * 1e5))
+        if k in seen:
+            coincident += 1
+        seen[k] = i
     used = len(val)
     return dict(closed=closed, max_valence=max(val.values()) if val else 0, pts=len(m.pts), used_pts=used,
                 quads=len(m.quads), edges=len(edges), euler=used - len(edges) + len(m.quads),
-                volume=signed_volume(m), degenerate=degenerate,
+                volume=signed_volume(m), degenerate=degenerate, coincident=coincident,
                 non2=sum(1 for v in edges.values() if v != 2))
 
 
@@ -326,7 +335,7 @@ def screw(head_r=0.55, head_h=0.35, shaft_r=0.3, shaft_len=1.0, thread_pitch=0.1
     tip = shaft_r * 0.7
     prof.append((tip, 0.0))
     prof.append((shaft_r * 0.9, 0.06))
-    steps = max(2, int(shaft_len / thread_pitch))
+    steps = max(2, min(5, int(shaft_len / thread_pitch)))
     for s in range(steps):
         z = 0.1 + (shaft_len - 0.1) * (s + 0.5) / steps
         prof.append((shaft_r * 1.0, z - thread_pitch * 0.15))
