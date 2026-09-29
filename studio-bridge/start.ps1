@@ -93,21 +93,16 @@ try {
             }
         }
         if (-not $base) { Show-Log $tLog; throw "The tunnel did not come up (log above)." }
-        # The address is announced before Cloudflare accepts traffic; wait until it really answers.
-        Write-Host "Waiting for the tunnel to become reachable ..." -ForegroundColor Cyan
+        # The address is printed before the tunnel accepts traffic. cloudflared logs
+        # "Registered tunnel connection" when it does (asking the public address from
+        # this PC is unreliable: Windows caches a failed DNS lookup for minutes).
+        Write-Host "Waiting for the tunnel to connect (up to 30 s) ..." -ForegroundColor Cyan
         $reach = $false
-        for ($i = 0; $i -lt 45 -and -not $reach; $i++) {
+        for ($i = 0; $i -lt 30 -and -not $reach; $i++) {
             if ($procs["tunnel"].Process.HasExited) { break }
-            try {
-                $r = Invoke-WebRequest -UseBasicParsing -Uri "$base/health-check-$token/mcp" -TimeoutSec 5 -ErrorAction Stop
-                $reach = $true
-            } catch {
-                # 404 from our gateway means the request got through the tunnel.
-                if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { $reach = $true }
-                else { Start-Sleep -Seconds 2 }
-            }
+            if (Select-String -Path $tLog -Pattern 'Registered tunnel connection' -Quiet) { $reach = $true } else { Start-Sleep -Seconds 1 }
         }
-        if (-not $reach) { Write-Host "The tunnel address did not answer yet; trying anyway." -ForegroundColor Yellow }
+        if (-not $reach) { Write-Host "The tunnel has not reported a connection yet; continuing anyway." -ForegroundColor Yellow }
     }
 
     $url = "$base/$token/mcp"
