@@ -1,0 +1,7 @@
+apps/
+bin/
+logs/
+.venv/
+__pycache__/
+gateway/servers.json
+connector-url.txt
