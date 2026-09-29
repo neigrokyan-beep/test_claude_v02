@@ -415,10 +415,10 @@ def video_sheet(path: str, start: float = 0.0, end: float = 0.0, cols: int = 4, 
 
 
 def _next_day_index(task: Path, day: str) -> int:
-    """Next NNN of the task's per-day counter, shared by Output/Images, Videos, Refs and Claude_refs."""
+    """Next NNN of the task's per-day counter, shared by Output/Images, Videos, Refs and Assets/Other/Claude_refs."""
     best = 0
-    for sub in ("Images", "Videos", "Refs", "Claude_refs"):
-        d = task / "Output" / sub
+    for d in (task / "Output" / "Images", task / "Output" / "Videos", task / "Output" / "Refs",
+              task / "Assets" / "Other" / "Claude_refs"):
         if d.is_dir():
             for f in d.iterdir():
                 m = re.match(rf"^{day}_(\d{{3}})\.", f.name)
@@ -430,7 +430,7 @@ def _next_day_index(task: Path, day: str) -> int:
 @mcp.tool()
 def ref_save_frames(path: str, times: list[float], task: str, max_px: int = 1600) -> str:
     """Save frames of a reference video into the task, apart from the user's own shots and renders: full frame in
-    <task>/Output/Claude_refs/YYYYMMDD_NNN.jpg and a 320 px preview in <task>/Output/Claude_refs/Thumbs/ with the same name;
+    <task>/Assets/Other/Claude_refs/YYYYMMDD_NNN.jpg (outside Output, so the task card does not show them) and a 320 px preview in <task>/Assets/Other/Claude_refs/Thumbs/ with the same name;
     NNN continues the task's day counter. Every call is a new batch, earlier refs are never overwritten.
     path: the video (vault-relative); task: e.g. 'Projects/claude/Yogo_pro_keyboard'; up to 24 times."""
     from PIL import Image as PILImage
@@ -444,7 +444,7 @@ def ref_save_frames(path: str, times: list[float], task: str, max_px: int = 1600
         raise ValueError("give 1 to 24 times")
     day = datetime.now().strftime("%Y%m%d")
     n = _next_day_index(t_dir, day)
-    refs = t_dir / "Output" / "Claude_refs"
+    refs = t_dir / "Assets" / "Other" / "Claude_refs"
     thumbs = refs / "Thumbs"
     refs.mkdir(parents=True, exist_ok=True)
     thumbs.mkdir(parents=True, exist_ok=True)
