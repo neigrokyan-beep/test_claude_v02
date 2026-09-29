@@ -60,6 +60,7 @@ class Downstream:
             cwd=cwd,
         )
         self.timeout = float(spec.get("timeout", 120))
+        self.log_path = base_dir.parent / "logs" / f"{name}.log"
         self.session: ClientSession | None = None
         self.last_error: str | None = None
         self._ready = anyio.Event()
@@ -67,9 +68,11 @@ class Downstream:
 
     async def run(self) -> None:
         delay = 3.0
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
         while True:
+            errlog = open(self.log_path, "a", encoding="utf-8", errors="replace")  # the app server's stderr
             try:
-                async with stdio_client(self.params) as (read, write):
+                async with stdio_client(self.params, errlog=errlog) as (read, write):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         self.session, self.last_error = session, None
@@ -78,9 +81,10 @@ class Downstream:
                         self._ready.set()
                         await self._restart.wait()
             except Exception as exc:  # noqa: BLE001 - keep supervising whatever happens
-                self.last_error = f"{type(exc).__name__}: {exc}"
+                self.last_error = f"{_root_cause(exc)} (see {self.log_path})"
                 log.warning("[%s] down: %s", self.name, self.last_error)
                 self._ready.set()  # wake waiters so they see the error instead of hanging
+            errlog.close()
             self.session = None
             self._restart = anyio.Event()
             self._ready = anyio.Event()
@@ -122,9 +126,15 @@ class Downstream:
         except McpError as exc:  # the server answered with an error; the connection is fine
             return _error(f"{self.name}: {exc.error.message}")
         except Exception as exc:  # noqa: BLE001 - transport broke; reconnect in the background
-            self.last_error = f"call_tool: {type(exc).__name__}: {exc}"
+            self.last_error = f"call_tool: {_root_cause(exc)}"
             self.restart()
             return _error(f"{self.name} connection lost ({exc}); reconnecting, retry in a few seconds")
+
+
+def _root_cause(exc: BaseException) -> str:
+    while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+        exc = exc.exceptions[0]
+    return f"{type(exc).__name__}: {exc}"
 
 
 def _error(text: str) -> types.CallToolResult:

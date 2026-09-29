@@ -63,6 +63,7 @@ function New-Venv($dir) {
 function Sync-Repo($url, $dir) {
     Info "downloading $url"
     if (Test-Path (Join-Path $dir ".git")) {
+        Invoke-Checked git @("-C", $dir, "checkout", "-q", "--", ".")  # drop our local patches before updating
         Invoke-Checked git @("-C", $dir, "pull", "-q", "--ff-only")
     } else {
         Invoke-Checked git @("clone", "-q", "--depth", "1", $url, $dir)
@@ -83,7 +84,8 @@ if (-not $SkipC4D) {
     $dir = Join-Path $Apps "cinema4d-mcp"
     Sync-Repo "https://github.com/ttiimmaacc/cinema4d-mcp.git" $dir
     $py = New-Venv $dir
-    Invoke-Checked $py @("-m", "pip", "install", "--progress-bar", "on", "-e", $dir)
+    # cinema4d-mcp uses the mcp 1.x FastMCP API; mcp 2.x removed it.
+    Invoke-Checked $py @("-m", "pip", "install", "--progress-bar", "on", "-e", $dir, "mcp>=1.2,<2")
 
     $plugin = Join-Path $dir "c4d_plugin\mcp_server_plugin.pyp"
     $prefs = Get-ChildItem (Join-Path $env:APPDATA "Maxon") -Directory -ErrorAction SilentlyContinue |
@@ -112,6 +114,13 @@ if (-not $SkipHoudini) {
     $py = New-Venv $dir
     # The repo's pyproject.toml is malformed, so install the dependency directly.
     Invoke-Checked $py @("-m", "pip", "install", "--progress-bar", "on", "mcp[cli]>=1.2,<2")
+    # Newer mcp 1.x rejects FastMCP(description=...); the current name is instructions=.
+    $srv = Join-Path $dir "houdini_mcp_server.py"
+    $code = Get-Content $srv -Raw -Encoding UTF8
+    if ($code -match 'description=') {
+        Set-Content -Path $srv -Value ($code -replace '(\n\s*)description=', '$1instructions=') -NoNewline -Encoding UTF8
+        Ok "patched houdini_mcp_server.py (description= -> instructions=)"
+    }
 
     $docs = [Environment]::GetFolderPath("MyDocuments")
     $hPrefs = Get-ChildItem $docs -Directory -Filter "houdini*" -ErrorAction SilentlyContinue |
