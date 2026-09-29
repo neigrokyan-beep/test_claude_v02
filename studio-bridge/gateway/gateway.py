@@ -247,6 +247,13 @@ def main() -> None:
     logging.getLogger("mcp").setLevel(logging.WARNING)
     config_path = Path(args.config).resolve()
     config = json.loads(config_path.read_text(encoding="utf-8-sig"))  # PowerShell 5 writes a BOM
+    # servers.local.json (next to servers.json) survives install.cmd: its entries add to or replace
+    # the generated ones, e.g. the user's own C4D bridge instead of the bundled one.
+    local_path = config_path.with_name("servers.local.json")
+    if local_path.is_file():
+        local = json.loads(local_path.read_text(encoding="utf-8-sig"))
+        config["servers"].update(local.get("servers", {}))
+        log.info("servers.local.json applied: %s", ", ".join(local.get("servers", {})) or "(empty)")
     uvicorn.run(make_app(config, config_path.parent), host=args.host, port=args.port, log_level="warning")
 
 
