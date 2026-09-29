@@ -415,9 +415,9 @@ def video_sheet(path: str, start: float = 0.0, end: float = 0.0, cols: int = 4, 
 
 
 def _next_day_index(task: Path, day: str) -> int:
-    """Next NNN of the task's per-day counter, shared by Output/Images, Videos and Refs."""
+    """Next NNN of the task's per-day counter, shared by Output/Images, Videos, Refs and Claude_refs."""
     best = 0
-    for sub in ("Images", "Videos", "Refs"):
+    for sub in ("Images", "Videos", "Refs", "Claude_refs"):
         d = task / "Output" / sub
         if d.is_dir():
             for f in d.iterdir():
@@ -429,8 +429,8 @@ def _next_day_index(task: Path, day: str) -> int:
 
 @mcp.tool()
 def ref_save_frames(path: str, times: list[float], task: str, max_px: int = 1600) -> str:
-    """Save frames of a reference video into the task, the way the vault wants refs: full frame in
-    <task>/Output/Refs/YYYYMMDD_NNN.jpg and a 320 px preview in <task>/Output/Thumbs/ with the same name;
+    """Save frames of a reference video into the task, apart from the user's own shots and renders: full frame in
+    <task>/Output/Claude_refs/YYYYMMDD_NNN.jpg and a 320 px preview in <task>/Output/Claude_refs/Thumbs/ with the same name;
     NNN continues the task's day counter. Every call is a new batch, earlier refs are never overwritten.
     path: the video (vault-relative); task: e.g. 'Projects/claude/Yogo_pro_keyboard'; up to 24 times."""
     from PIL import Image as PILImage
@@ -444,7 +444,8 @@ def ref_save_frames(path: str, times: list[float], task: str, max_px: int = 1600
         raise ValueError("give 1 to 24 times")
     day = datetime.now().strftime("%Y%m%d")
     n = _next_day_index(t_dir, day)
-    refs, thumbs = t_dir / "Output" / "Refs", t_dir / "Output" / "Thumbs"
+    refs = t_dir / "Output" / "Claude_refs"
+    thumbs = refs / "Thumbs"
     refs.mkdir(parents=True, exist_ok=True)
     thumbs.mkdir(parents=True, exist_ok=True)
     px = max(320, min(max_px, 2400))
@@ -463,7 +464,7 @@ def ref_save_frames(path: str, times: list[float], task: str, max_px: int = 1600
         im.save(thumbs / name, "JPEG", quality=82)
         saved.append(f"{name}  <- {float(t):.2f}s")
         n += 1
-    return f"saved {len(saved)} refs from {p.name} into {_rel(refs)} (+ previews in Output/Thumbs):\n" + "\n".join(saved)
+    return f"saved {len(saved)} refs from {p.name} into {_rel(refs)} (+ previews in Thumbs):\n" + "\n".join(saved)
 
 
 # ------------------------------------------------------------------ GSG library
