@@ -27,7 +27,7 @@ def add_part(parent, name, factory_expr, pos=(0, 0, 0)):
     geo.setParms({"tx": pos[0], "ty": pos[2], "tz": pos[1]})
     py = geo.createNode("python", "mesh")
     py.parm("python").set(
-        "import sys\nimport wm_geo, wm_hou\nwm_hou.fill_geometry(hou.pwd().geometry(), %s)\n" % factory_expr)
+        "import sys\nimport wm_geo, wm_hou\nimport wm_demo\nwm_hou.fill_geometry(hou.pwd().geometry(), %s)\n" % factory_expr)
     py.setDisplayFlag(True)
     py.setRenderFlag(True)
     return geo
