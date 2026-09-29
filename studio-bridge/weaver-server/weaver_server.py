@@ -23,12 +23,16 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import base64
+
+import mcp.types as mtypes
 from mcp.server.fastmcp import FastMCP, Image
 
 VAULT = Path(os.environ.get("WEAVER_VAULT", r"G:\todoist_obsidian_claude"))
@@ -312,6 +316,154 @@ def view_image(path: str, max_px: int = 900) -> Image:
     if p.suffix.lower() not in IMAGE_EXT:
         raise ValueError(f"Not a supported image type: {p.suffix}")
     return _as_image(p, max(128, min(max_px, 2000)))
+
+
+# ------------------------------------------------------------------ video reference
+
+VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi", ".gif"}
+
+
+def _jpeg(data: bytes) -> Any:
+    return mtypes.ImageContent(type="image", data=base64.b64encode(data).decode("ascii"), mimeType="image/jpeg")
+
+
+def _text(t: str) -> Any:
+    return mtypes.TextContent(type="text", text=t)
+
+
+def _ffmpeg() -> str:
+    exe = shutil.which("ffmpeg")
+    if not exe:
+        raise FileNotFoundError("ffmpeg not found in PATH on the PC (winget install Gyan.FFmpeg)")
+    return exe
+
+
+def _video_path(path: str) -> Path:
+    p = _vpath(path)
+    if not p.is_file() or p.suffix.lower() not in VIDEO_EXT:
+        raise FileNotFoundError(f"Not a video file in the vault: {path}")
+    return p
+
+
+def _run_ffmpeg(args: list[str], timeout: int = 90) -> bytes:
+    proc = subprocess.run([_ffmpeg(), "-hide_banner", "-loglevel", "error", *args],
+                          capture_output=True, timeout=timeout)
+    if proc.returncode != 0:
+        raise RuntimeError("ffmpeg failed: " + proc.stderr.decode("utf-8", "replace")[-400:])
+    return proc.stdout
+
+
+@mcp.tool()
+def video_info(path: str) -> str:
+    """Duration, frame size and frame rate of a video in the vault (path relative to the vault root)."""
+    p = _video_path(path)
+    proc = subprocess.run([_ffmpeg(), "-hide_banner", "-i", str(p)], capture_output=True, timeout=30)
+    text = proc.stderr.decode("utf-8", "replace")
+    dur = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", text)
+    vid = re.search(r"Video:.*?,\s*(\d{2,5})x(\d{2,5})", text)
+    fps = re.search(r"([\d.]+)\s*fps", text)
+    seconds = int(dur[1]) * 3600 + int(dur[2]) * 60 + float(dur[3]) if dur else None
+    return json.dumps({"file": p.name, "seconds": seconds, "size": f"{vid[1]}x{vid[2]}" if vid else None,
+                       "fps": float(fps[1]) if fps else None}, ensure_ascii=False)
+
+
+@mcp.tool()
+def video_frames(path: str, times: list[float], max_px: int = 960) -> list[Any]:
+    """Frames of a video at the given times in seconds (up to 12 per call), returned as images in that order.
+    Use it to study a reference: motion, timing, what appears when."""
+    p = _video_path(path)
+    if not times or len(times) > 12:
+        raise ValueError("give 1 to 12 times")
+    out: list[Any] = []
+    px = max(160, min(max_px, 1600))
+    for t in times:
+        if not (0 <= float(t) < 36000):
+            raise ValueError(f"bad time {t}")
+        data = _run_ffmpeg(["-ss", f"{float(t):.3f}", "-i", str(p), "-frames:v", "1",
+                            "-vf", f"scale='min({px},iw)':-2", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "3", "-"])
+        if not data:
+            raise ValueError(f"no frame at {t}s (past the end?)")
+        out.append(_text(f"t = {float(t):.3f} s"))
+        out.append(_jpeg(data))
+    return out
+
+
+@mcp.tool()
+def video_sheet(path: str, start: float = 0.0, end: float = 0.0, cols: int = 4, rows: int = 4, tile_px: int = 420) -> list[Any]:
+    """One contact sheet of evenly spaced frames from start to end (end 0 = whole video), left to right,
+    top to bottom. Cheapest way to see the whole motion; then video_frames for the moments that matter.
+    The text lists the time of every tile."""
+    p = _video_path(path)
+    cols, rows = max(1, min(cols, 8)), max(1, min(rows, 8))
+    info = json.loads(video_info(path))
+    total = float(info["seconds"] or 0)
+    end = float(end) if end and end > 0 else total
+    end = min(end, total) if total else end
+    if end <= start:
+        raise ValueError("end must be greater than start")
+    n = cols * rows
+    step = (end - start) / n
+    times = [start + step * (i + 0.5) for i in range(n)]
+    px = max(120, min(tile_px, 800))
+    data = _run_ffmpeg(["-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", str(p),
+                        "-vf", f"fps={n / (end - start):.6f},scale={px}:-2,tile={cols}x{rows}",
+                        "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "3", "-"], timeout=180)
+    if not data:
+        raise ValueError("no frames produced")
+    lines = [f"{i + 1}: {t:.2f}s" for i, t in enumerate(times)]
+    return [_text("tiles (left to right, top to bottom): " + "  ".join(lines)), _jpeg(data)]
+
+
+def _next_day_index(task: Path, day: str) -> int:
+    """Next NNN of the task's per-day counter, shared by Output/Images, Videos and Refs."""
+    best = 0
+    for sub in ("Images", "Videos", "Refs"):
+        d = task / "Output" / sub
+        if d.is_dir():
+            for f in d.iterdir():
+                m = re.match(rf"^{day}_(\d{{3}})\.", f.name)
+                if m:
+                    best = max(best, int(m[1]))
+    return best + 1
+
+
+@mcp.tool()
+def ref_save_frames(path: str, times: list[float], task: str, max_px: int = 1600) -> str:
+    """Save frames of a reference video into the task, the way the vault wants refs: full frame in
+    <task>/Output/Refs/YYYYMMDD_NNN.jpg and a 320 px preview in <task>/Output/Thumbs/ with the same name;
+    NNN continues the task's day counter. Every call is a new batch, earlier refs are never overwritten.
+    path: the video (vault-relative); task: e.g. 'Projects/claude/Yogo_pro_keyboard'; up to 24 times."""
+    from PIL import Image as PILImage
+
+    p = _video_path(path)
+    t_dir = _vpath(task)
+    parts = t_dir.relative_to(_vroot()).parts
+    if len(parts) != 3 or parts[0] != "Projects" or not t_dir.is_dir():
+        raise ValueError("task must be an existing 'Projects/<branch>/<task>' folder")
+    if not times or len(times) > 24:
+        raise ValueError("give 1 to 24 times")
+    day = datetime.now().strftime("%Y%m%d")
+    n = _next_day_index(t_dir, day)
+    refs, thumbs = t_dir / "Output" / "Refs", t_dir / "Output" / "Thumbs"
+    refs.mkdir(parents=True, exist_ok=True)
+    thumbs.mkdir(parents=True, exist_ok=True)
+    px = max(320, min(max_px, 2400))
+    saved = []
+    for t in times:
+        if not (0 <= float(t) < 36000):
+            raise ValueError(f"bad time {t}")
+        data = _run_ffmpeg(["-ss", f"{float(t):.3f}", "-i", str(p), "-frames:v", "1",
+                            "-vf", f"scale='min({px},iw)':-2", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "-"])
+        if not data:
+            raise ValueError(f"no frame at {t}s")
+        name = f"{day}_{n:03d}.jpg"
+        (refs / name).write_bytes(data)
+        im = PILImage.open(io.BytesIO(data)).convert("RGB")
+        im.thumbnail((320, 320))
+        im.save(thumbs / name, "JPEG", quality=82)
+        saved.append(f"{name}  <- {float(t):.2f}s")
+        n += 1
+    return f"saved {len(saved)} refs from {p.name} into {_rel(refs)} (+ previews in Output/Thumbs):\n" + "\n".join(saved)
 
 
 # ------------------------------------------------------------------ GSG library
