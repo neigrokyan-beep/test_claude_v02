@@ -20,6 +20,7 @@ claude.ai (облако) ──HTTPS──► туннель (cloudflared / ngro
 | Cinema 4D | [ttiimmaacc/cinema4d-mcp](https://github.com/ttiimmaacc/cinema4d-mcp) |
 | Houdini | [eetumartola/houdini-mcp](https://github.com/eetumartola/houdini-mcp) |
 | Fusion Studio | [bigsbypuglise/fusion-studio-mcp](https://github.com/bigsbypuglise/fusion-studio-mcp) |
+| Nuke | [kleer001/nuke-mcp](https://github.com/kleer001/nuke-mcp) (панель NukeMCP в Nuke, порт 54321) |
 
 ## 1. Установка (один раз)
 

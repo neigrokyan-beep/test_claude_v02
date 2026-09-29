@@ -11,7 +11,8 @@ param(
     [string]$FusionDll = "",
     [switch]$SkipC4D,
     [switch]$SkipHoudini,
-    [switch]$SkipFusion
+    [switch]$SkipFusion,
+    [switch]$SkipNuke
 )
 
 $ErrorActionPreference = "Stop"
@@ -203,6 +204,22 @@ if (-not $SkipFusion) {
             FUSION_APP_NAME   = "Fusion"
             FUSION_MCP_LOG_DIR = (Join-Path $Root "logs")
         }
+    }
+}
+
+# ---------------------------------------------------------------- Nuke
+if (-not $SkipNuke) {
+    Step "Nuke MCP server (github.com/kleer001/nuke-mcp)"
+    $dir = Join-Path $Apps "nuke-mcp"
+    Sync-Repo "https://github.com/kleer001/nuke-mcp.git" $dir
+    $py = New-Venv $dir
+    Invoke-Checked $py @("-m", "pip", "install", "--progress-bar", "on", "-e", $dir)
+    # Only the server side is installed here. The panel inside Nuke ("NukeMCP", port 54321)
+    # is the addon from the same project and is started from Nuke itself.
+    $servers["nuke"] = [ordered]@{
+        command = $py
+        args    = @("-c", "from nukemcp.server import main; main()", "--port", "54321")
+        cwd     = $dir; timeout = 300
     }
 }
 
