@@ -114,13 +114,18 @@ if (-not $SkipHoudini) {
     $py = New-Venv $dir
     # The repo's pyproject.toml is malformed, so install the dependency directly.
     Invoke-Checked $py @("-m", "pip", "install", "--progress-bar", "on", "mcp[cli]>=1.2,<2")
-    # Newer mcp 1.x rejects FastMCP(description=...); the current name is instructions=.
+    # Fix the repo for current mcp 1.x and move it off port 9876, which other Houdini
+    # bridges commonly use (two listeners on one port made Houdini hang on every call).
+    $HPort = "19876"
     $srv = Join-Path $dir "houdini_mcp_server.py"
     $code = Get-Content $srv -Raw -Encoding UTF8
-    if ($code -match 'description=') {
-        Set-Content -Path $srv -Value ($code -replace '(\n\s*)description=', '$1instructions=') -NoNewline -Encoding UTF8
-        Ok "patched houdini_mcp_server.py (description= -> instructions=)"
-    }
+    $code = $code -replace '(\n\s*)description=', '$1instructions='   # FastMCP(description=) was renamed
+    $code = $code -replace 'port=9876', 'port=int(os.environ.get("HOUDINI_PORT", "9876"))'
+    Set-Content -Path $srv -Value $code -NoNewline -Encoding UTF8
+    $mod = Join-Path $dir "houdini_mcp.py"
+    $code = Get-Content $mod -Raw -Encoding UTF8
+    Set-Content -Path $mod -Value ($code -replace 'port=9876', "port=$HPort") -NoNewline -Encoding UTF8
+    Ok "patched houdini-mcp (mcp 1.x fix, port $HPort)"
 
     $docs = [Environment]::GetFolderPath("MyDocuments")
     $hPrefs = Get-ChildItem $docs -Directory -Filter "houdini*" -ErrorAction SilentlyContinue |
@@ -138,7 +143,7 @@ if (-not $SkipHoudini) {
   <tool name="studio_bridge_mcp_start" label="MCP Start" icon="MISC_python">
     <script scriptType="python"><![CDATA[import houdini_mcp
 houdini_mcp.start_server()
-hou.ui.setStatusMessage("HoudiniMCP listening on localhost:9876")]]></script>
+hou.ui.setStatusMessage("HoudiniMCP listening on localhost:19876")]]></script>
   </tool>
   <tool name="studio_bridge_mcp_stop" label="MCP Stop" icon="MISC_python">
     <script scriptType="python"><![CDATA[import houdini_mcp
@@ -160,6 +165,7 @@ houdini_mcp.stop_server()]]></script>
     }
     $servers["houdini"] = [ordered]@{
         command = $py; args = @("houdini_mcp_server.py"); cwd = $dir; timeout = 300
+        env = [ordered]@{ HOUDINI_PORT = $HPort }
     }
 }
 
