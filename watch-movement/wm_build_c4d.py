@@ -192,3 +192,69 @@ def animate(doc, parts, i0, i1):
         done += 1
     c4d.EventAdd()
     return done
+
+
+# ----------------------------------------------------------------------------- camera
+def _look(pos, tgt):
+    d = c4d.Vector(tgt[0] - pos[0], tgt[1] - pos[1], tgt[2] - pos[2])
+    d.Normalize()
+    return math.atan2(d.x, d.z), math.asin(max(-1.0, min(1.0, d.y)))
+
+
+def camera_keys():
+    """(frame, camera position, look-at target, focal mm) in C4D coordinates, following the reference beats."""
+    moon = None
+    for p in L.build():
+        if p["name"] == "moon_disc":
+            moon = (p["pos"][0], p["pos"][2] + 0.4, p["pos"][1])
+    mx, my, mz = moon
+    return [
+        (0, (-26, 26, -58), (0, 3, 0), 50),        # cloud, wide
+        (110, (-15, 18, -37), (0, 2.5, 0), 50),    # push in
+        (135, (-7, 9, -19), (2, 4.5, -1), 40),     # macro: bridges and screws come down
+        (200, (-5, 6.5, -14), (1, 4.8, 0), 40),
+        (225, (9, 15, -30), (0, 5, 0), 50),        # glass layers over the calendar
+        (290, (10, 21, -34), (0, 6.5, 0), 50),
+        (312, (mx + 11, 8.5, mz - 9), (mx, my, mz), 35),   # macro: moon disc
+        (385, (mx + 9, 9.5, mz - 10), (mx, my, mz), 35),
+        (410, (0, 36, -72), (0, 6, 0), 50),        # pull back: dial, case, crystal
+        (470, (0, 30, -62), (0, 6.5, 0), 50),
+        (500, (0, 27, -58), (0, 6.5, 0), 50),
+    ]
+
+
+def add_camera(doc, name="CAM_ANIM"):
+    old = doc.SearchObject(name)
+    if old:
+        old.Remove()
+    cam = c4d.BaseObject(c4d.Ocamera)
+    cam.SetName(name)
+    doc.InsertObject(cam)
+    keys = camera_keys()
+    cam[c4d.CAMERA_FOCUS] = 50.0 * 1.0
+    comps = {c4d.VECTOR_X: [], c4d.VECTOR_Y: [], c4d.VECTOR_Z: []}
+    hs, ps, fs = [], [], []
+    last_h = None
+    for f, pos, tgt, foc in keys:
+        h, p = _look(pos, tgt)
+        if last_h is not None:
+            while h - last_h > math.pi:
+                h -= 2 * math.pi
+            while h - last_h < -math.pi:
+                h += 2 * math.pi
+        last_h = h
+        comps[c4d.VECTOR_X].append((f, pos[0]))
+        comps[c4d.VECTOR_Y].append((f, pos[1]))
+        comps[c4d.VECTOR_Z].append((f, pos[2]))
+        hs.append((f, h))
+        ps.append((f, p))
+        fs.append((f, foc))
+    ease = (0.45, 0.0, 0.25, 1.0)
+    for comp, ks in comps.items():
+        W.set_track(cam, c4d.ID_BASEOBJECT_REL_POSITION, comp, ks, FPS, ease)
+    W.set_track(cam, c4d.ID_BASEOBJECT_REL_ROTATION, c4d.VECTOR_X, hs, FPS, ease)
+    W.set_track(cam, c4d.ID_BASEOBJECT_REL_ROTATION, c4d.VECTOR_Y, ps, FPS, ease)
+    bd = doc.GetActiveBaseDraw()
+    bd.SetSceneCamera(cam)
+    c4d.EventAdd()
+    return cam
