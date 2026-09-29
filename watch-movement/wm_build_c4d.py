@@ -39,6 +39,7 @@ T = {
     "calring": dict(t0=(275, 285), dur=(60, 60), lift=(22, 22), side=(0, 0), tumble=4, spin=0, ease=E_OUT),
     "moondisc": dict(t0=(288, 292), dur=(72, 72), lift=(7, 7), side=(0, 0), tumble=4, spin=0, ease=E_OUT),
     "moon": dict(t0=(340, 345), dur=(40, 40), lift=(5, 5), side=(0, 0), tumble=0, spin=0, ease=E_OUT),
+    "sapphire": dict(t0=(185, 225), dur=(55, 65), lift=(30, 36), side=(0, 3), tumble=8, spin=0, ease=Q_OUT),
     "glass": dict(t0=(205, 300), dur=(95, 105), lift=(40, 46), side=(0, 3), tumble=10, spin=0, ease=Q_OUT),
     "dial": dict(t0=(385, 395), dur=(65, 65), lift=(70, 70), side=(0, 0), tumble=3, spin=0, ease=E_OUT),
     "case": dict(t0=(400, 410), dur=(75, 75), lift=(-70, -70), side=(0, 0), tumble=2, spin=0, ease=E_OUT),
@@ -57,6 +58,10 @@ CORE_PREFIX = ("barrel", "mainspring", "centre", "third", "fourth", "escape", "a
 
 def timing_key(p):
     gname, name, z = p["group"], p["name"], p["pos"][2]
+    if name == "crystal":
+        return "crystal"
+    if name.startswith("sapphire"):
+        return "sapphire"
     if gname in ("screw", "screw_t", "screw_c"):
         return "screw_c" if ("cal" in name or name.startswith("jumper_screw")) else "screw_b"
     if gname == "chaton":
@@ -183,6 +188,9 @@ def animate(doc, parts, i0, i1):
         ease = cfg["ease"]
         for comp, v0, v1 in ((c4d.VECTOR_X, start_pos[0], home[0]), (c4d.VECTOR_Y, start_pos[1], home[1]), (c4d.VECTOR_Z, start_pos[2], home[2])):
             W.set_track(nul, c4d.ID_BASEOBJECT_REL_POSITION, comp, [(0, v0), (t0, v0), (t1, v1)], FPS, ease)
+        if timing_key(p) == "sapphire":     # transition effect of the reference: the discs land and dissolve
+            for comp in (c4d.VECTOR_X, c4d.VECTOR_Y, c4d.VECTOR_Z):
+                W.set_track(nul, c4d.ID_BASEOBJECT_REL_SCALE, comp, [(0, 1.0), (t1 + 15, 1.0), (t1 + 27, 0.001)], FPS, (0.5, 0.0, 1.0, 1.0))
         spin_linear = cfg["spin"] >= 2.0
         for comp, v0, v1 in ((c4d.VECTOR_X, rot0[0], rot1[0]), (c4d.VECTOR_Y, rot0[1], rot1[1]), (c4d.VECTOR_Z, rot0[2], rot1[2])):
             if abs(v0 - v1) < 1e-6:
