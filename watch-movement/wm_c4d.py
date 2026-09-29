@@ -56,3 +56,76 @@ def new_doc(name="watch_demo"):
     c4d.documents.InsertBaseDocument(doc)
     c4d.documents.SetActiveDocument(doc)
     return doc
+
+
+# ----------------------------------------------------------------------------- materials, tracks
+MATS = {  # key: (rgb, glass?)
+    "steel": ((0.62, 0.63, 0.66), False), "steel_dark": ((0.32, 0.33, 0.36), False),
+    "steel_brushed": ((0.72, 0.73, 0.76), False), "steel_polished": ((0.86, 0.87, 0.9), False),
+    "steel_blued": ((0.16, 0.2, 0.34), False), "steel_blue": ((0.2, 0.3, 0.55), False),
+    "gold": ((0.85, 0.6, 0.26), False), "ruby": ((0.7, 0.04, 0.14), False), "blue": ((0.08, 0.14, 0.36), False),
+    "white": ((0.93, 0.93, 0.9), False), "moonlit": ((0.92, 0.86, 0.62), False), "glass": ((0.8, 0.9, 0.96), True),
+}
+
+
+def get_mat(doc, key):
+    name = "wm_" + key
+    m = doc.SearchMaterial(name)
+    if m:
+        return m
+    m = c4d.BaseMaterial(c4d.Mmaterial)
+    m.SetName(name)
+    rgb, glass = MATS.get(key, MATS["steel"])
+    m[c4d.MATERIAL_COLOR_COLOR] = c4d.Vector(*rgb)
+    if glass:
+        m[c4d.MATERIAL_USE_TRANSPARENCY] = True
+        m[c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS] = 0.75
+        m[c4d.MATERIAL_TRANSPARENCY_REFRACTION] = 1.55
+    doc.InsertMaterial(m)
+    return m
+
+
+def assign_mat(doc, obj, key):
+    tag = obj.MakeTag(c4d.Ttexturetag)
+    tag[c4d.TEXTURETAG_MATERIAL] = get_mat(doc, key)
+    return tag
+
+
+def _did(pid, comp):
+    return c4d.DescID(c4d.DescLevel(pid, c4d.DTYPE_VECTOR, 0), c4d.DescLevel(comp, c4d.DTYPE_REAL, 0))
+
+
+def set_track(obj, pid, comp, keys, fps, ease=(0.25, 1.0, 0.5, 1.0), linear=False):
+    """keys: [(frame, value), ...] sorted. Last segment gets the cubic-bezier ease; earlier equal-value segments stay flat."""
+    did = _did(pid, comp)
+    tr = obj.FindCTrack(did)
+    if tr is None:
+        tr = c4d.CTrack(obj, did)
+        obj.InsertTrackSorted(tr)
+    crv = tr.GetCurve()
+    made = []
+    for f, v in keys:
+        k = crv.AddKey(c4d.BaseTime(f / float(fps)))["key"]
+        k.SetValue(crv, v)
+        k.SetInterpolation(crv, c4d.CINTERPOLATION_LINEAR if linear else c4d.CINTERPOLATION_SPLINE)
+        made.append((f, v, k))
+    if linear:
+        return
+    for i in range(len(made) - 1):
+        (f0, v0, k0), (f1, v1, k1) = made[i], made[i + 1]
+        dt = (f1 - f0) / float(fps)
+        try:
+            k0.SetBreak(True)
+            k1.SetBreak(True)
+        except Exception:
+            pass
+        if abs(v1 - v0) < 1e-9:
+            x1, y1, x2, y2 = 0.33, 0.0, 0.66, 0.0
+            dv = 0.0
+        else:
+            x1, y1, x2, y2 = ease
+            dv = v1 - v0
+        k0.SetTimeRight(crv, c4d.BaseTime(x1 * dt))
+        k0.SetValueRight(crv, y1 * dv)
+        k1.SetTimeLeft(crv, c4d.BaseTime(-(1.0 - x2) * dt))
+        k1.SetValueLeft(crv, -(1.0 - y2) * dv)

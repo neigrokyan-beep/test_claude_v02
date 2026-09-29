@@ -231,8 +231,10 @@ def gear(teeth, r_tip, thick=0.3, bore=0.25, hub_r=None, hub_h=0.0, web_r=None, 
 
 
 # ----------------------------------------------------------------------------- discs, rings, plates
-def annulus(r_out, r_in, thick, seg=64, bevel=0.04, steps=None, name=""):
+def annulus(r_out, r_in, thick, seg=None, bevel=0.04, steps=None, name=""):
     """Flat ring with bevelled rim. steps: optional [(r, dz)] raised rings on the top face."""
+    if seg is None:
+        seg = auto_seg(r_out)
     b = min(bevel, thick * 0.35, (r_out - r_in) * 0.3)
     prof = [(r_in, 0.0), (r_out - b, 0.0), (r_out, b), (r_out, thick - b), (r_out - b, thick)]
     if steps:
@@ -251,6 +253,68 @@ def disc_solid(r, thick, m=4, dome=0.0, bevel=0.05, name=""):
     b = min(bevel, thick * 0.4, r * 0.3)
     prof = [(0.0, 0.0), (r - b, 0.0), (r, b), (r, thick - b), (r - b, thick), (0.0, thick)]
     return lathe(prof, ring_dirs(m), cap_start=m, cap_end=m, dome_end=dome, name=name)
+
+
+# ----------------------------------------------------------------------------- clean wheels and plates
+def auto_seg(r, cell=0.9, mult=4):
+    """Ring segment count for a band of radius r so that quads are roughly cell x cell (multiple of mult)."""
+    n = int(math.ceil(TAU * r / cell / mult)) * mult
+    return max(16, n)
+
+
+def gear_ring(n, r_tip, thick, width=None, kind="spur", per_tooth=4, chamfer=0.03, tooth_h=None, name=""):
+    """Toothed band only (no web): a narrow torus, ~10 profile points, quads about square.
+    width = radial width of the band below the tooth root."""
+    mod = 2.0 * r_tip / (n + 2.0)
+    th = tooth_h if tooth_h else 2.2 * mod
+    r_root = r_tip - th
+    width = width if width else max(0.45, 0.14 * r_tip)
+    r_in = r_root - width
+    depth = th / r_root
+    c = min(chamfer, thick * 0.3, th * 0.5, width * 0.3)
+    P = [(r_in + c, 0.0, 0.0), (r_root - c, 0.0, 0.0), (r_root, 0.0, 0.75), (r_root, c, 1.0), (r_root, thick - c, 1.0),
+         (r_root, thick, 0.75), (r_root - c, thick, 0.0), (r_in + c, thick, 0.0), (r_in, thick - c, 0.0), (r_in, c, 0.0)]
+    return lathe(P, uniform_dirs(n * per_tooth), radial=_tooth_radial(n, kind, per_tooth, depth), name=name)
+
+
+def wheel_open(n, r_tip, thick=0.3, spokes=4, bore=0.25, hub_r=None, width=None, per_tooth=4, kind="spur",
+               spoke_w=None, hub_h=0.0, name=""):
+    """Watch wheel with crossings: toothed rim + hub ring + straight spokes, merged into one mesh (separate shells)."""
+    ring = gear_ring(n, r_tip, thick, width, kind, per_tooth)
+    mod = 2.0 * r_tip / (n + 2.0)
+    r_root = r_tip - 2.2 * mod
+    w = width if width else max(0.45, 0.14 * r_tip)
+    r_in = r_root - w
+    hub_r = hub_r if hub_r else max(bore * 2.6, 0.7)
+    hub = annulus(hub_r, bore, thick * 1.5 + hub_h, seg=auto_seg(hub_r, 0.5), bevel=0.03).translate(0, 0, -thick * 0.25)
+    m = ring.merged(hub)
+    sw = spoke_w if spoke_w else max(0.3, 0.09 * r_tip)
+    zc = thick * 0.5
+    for k in range(spokes):
+        a = TAU * k / spokes + math.pi / spokes
+        ca, sa = math.cos(a), math.sin(a)
+        r0, r1 = hub_r * 0.8, r_in + 0.2
+        path = [(ca * (r0 + (r1 - r0) * t), sa * (r0 + (r1 - r0) * t), zc) for t in (0.0, 0.33, 0.66, 1.0)]
+        m = m.merged(sweep(path, sw, thick * 0.75, k=2 if sw > 0.45 else 1, corner=0.35,
+                           width_fn=lambda tt: (1.0 - 0.3 * tt, 1.0)))
+    m.name = name
+    return m
+
+
+def plate(r_out, thick, steps=None, m=12, bevel=0.05, name=""):
+    """Wide round plate with quad-grid caps (no radial slivers). steps: [(r, dz)] raised rings on the top,
+    listed from the outside in; each raise accumulates. Ring count 4*m."""
+    b = min(bevel, thick * 0.4, r_out * 0.1)
+    z = thick
+    prof = [(0.0, 0.0), (r_out - b, 0.0), (r_out, b), (r_out, thick - b), (r_out - b, thick)]
+    for (r, dz) in (steps or []):
+        prof.append((r, z))
+        z += dz
+        prof.append((r, z))
+    if not steps:
+        prof.append((r_out * 0.45, z))
+    prof.append((0.0, z))
+    return lathe(prof, ring_dirs(m), cap_start=m, cap_end=m, name=name)
 
 
 # ----------------------------------------------------------------------------- screws, jewels
