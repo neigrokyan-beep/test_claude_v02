@@ -160,6 +160,8 @@ def build_server(downstreams: dict[str, Downstream]) -> Server:
                     t.model_copy(
                         update={
                             "name": f"{name}{SEP}{t.name}",
+                            # the client rejects text-only replies (errors, timeouts) when a schema is declared
+                            "outputSchema": None,
                             "description": f"[{name}] {t.description or ''}".strip(),
                         }
                     )

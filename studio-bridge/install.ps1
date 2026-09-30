@@ -129,7 +129,8 @@ if (-not $SkipHoudini) {
     $mod = Join-Path $dir "houdini_mcp.py"
     $code = Get-Content $mod -Raw -Encoding UTF8
     Set-Content -Path $mod -Value ($code -replace 'port=9876', "port=$HPort") -NoNewline -Encoding UTF8
-    Ok "patched houdini-mcp (mcp 1.x fix, port $HPort)"
+    Invoke-Checked $py @((Join-Path $PSScriptRoot "patches\patch_houdini.py"), $srv)   # retry on dead socket, return plugin output
+    Ok "patched houdini-mcp (mcp 1.x fix, port $HPort, retry)"
 
     $docs = [Environment]::GetFolderPath("MyDocuments")
     $hPrefs = Get-ChildItem $docs -Directory -Filter "houdini*" -ErrorAction SilentlyContinue |
