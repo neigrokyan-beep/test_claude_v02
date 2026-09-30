@@ -13,8 +13,8 @@ CUBES_RIG (Null)
               E_WAVE    (Formula) бегущая волна по Y
               E_SCATTER (Random)  разлёт по XZ и кувырок, сила — поле F_SWEEP
               E_FALL    (Plain)   подъём вверх и схлопывание в ноль, сила — поле F_SWEEP
-  FIELDS      F_SWEEP (Linear, Invert): фронт сборки едет по X вслед за Progress; впереди фронта кубы разлетелись,
-              позади — собраны
+  FIELDS      F_SWEEP (Linear): фронт сборки едет по X вслед за Progress; значение поля 1 впереди фронта (кубы разлетелись),
+              0 позади (собраны); градиент шириной Length идёт вдоль +X поля
   FLOOR, CAM_CUBES
 Progress ключами 0 -> 1 (кадры 0-90): кубы слетаются в сетку, дальше играет волна (пресеты меняют характер).
 """
@@ -181,9 +181,8 @@ fields = null("FIELDS", rig)
 sweep = c4d.BaseObject(c4d.Flinear)
 sweep.SetName("F_SWEEP")
 sweep.InsertUnder(fields)
-sweep[1005014] = True                       # Invert: впереди фронта = 1 (разлетелись), позади = 0 (собраны)
+sweep[1005014] = False                      # значение 0 позади фронта (собраны), 1 впереди (разлетелись); градиент вдоль +X поля
 sweep[1000] = 600.0                      # Length
-sweep.SetRelRot(c4d.Vector(-1.5708, 0, 0))  # направление градиента (локальный Z) вдоль +X
 
 
 def field_list():
@@ -343,7 +342,9 @@ def main():
     if fld is not None:
         if abs(fld[1000] - L) > 1e-6:
             fld[1000] = L
-        x = (-span * 0.5 - L) + ((span * 0.5) - (-span * 0.5 - L)) * prog
+        x0 = -span * 0.5 - L * 0.5 - pitch
+        x1 = span * 0.5 + L * 0.5 + pitch
+        x = x0 + (x1 - x0) * prog
         p = fld.GetRelPos()
         if abs(p.x - x) > 1e-6:
             fld.SetRelPos(c4d.Vector(x, 0, 0))
