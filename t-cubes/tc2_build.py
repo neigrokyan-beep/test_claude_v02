@@ -378,7 +378,7 @@ def ensure(op, doc):
     # base slab under all plates (the seams between plates read as dark lines)
     bp, bq = [], []
     cbox(bp, bq, 0.0, -0.2 * U - 0.002 * U, 0.0, (NU + 60) * U, 0.4 * U, (NV + 60) * U, 0.02 * U, FLIP)
-    base_o = poly_obj(bp, bq, "BASE", doc.SearchMaterial("tc_grey"))
+    base_o = poly_obj(bp, bq, "BASE", doc.SearchMaterial("tc_white"))
     base_o.InsertUnder(root)
     for i, el in enumerate(els):
         n = c4d.BaseObject(c4d.Onull)
@@ -446,8 +446,8 @@ try:
     key.SetName("KEY_LIGHT")
     key[10000] = 3
     key[11004] = 8.0
-    key[11016] = 1800.0
-    key[11017] = 900.0
+    key[11016] = 900.0
+    key[11017] = 600.0
     key.SetRelPos(c4d.Vector(-1700, 1000, -500))
     key.SetRelRot(c4d.Vector(0.0, -1.1, 0.0))
     doc.InsertObject(key)
