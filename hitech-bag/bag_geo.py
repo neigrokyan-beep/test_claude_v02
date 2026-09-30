@@ -266,7 +266,7 @@ def build(params=None):
     parts['Bag_Flap'] = tmp
 
     # --- ушко со щелью (над лямкой, слева сверху)
-    tc = px((240, 152))
+    tc = px((250, 164))
     tab_out = squircle(3.7, 4.1, 3.0, 48)
     tab_in = squircle(1.0, 2.6, 6.0, 48)
     tab = ring_plate(tab_out, tab_in, 0.7, rows=3, col=cs['body2'], inner_col=DARK)
