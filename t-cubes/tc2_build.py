@@ -224,19 +224,21 @@ def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset):
     leaves = []
 
     def split(x0, z0, w, h, d):
-        small = min(w, h) < 1.7 * U or w * h < 3.0 * U * U
-        if small or (d >= 2 and rnd.random() < 0.18 + 0.12 * d) or d > 6:
+        area = w * h / (U * U)
+        small = min(w, h) < 1.05 * U or area < 1.8
+        pstop = 0.0 if area > 24 else (0.05 if area > 12 else (0.2 if area > 6 else 0.45))
+        if small or rnd.random() < pstop or d > 9:
             leaves.append((x0, z0, w, h))
             return
         vertical = w > h * 1.25 or (h <= w * 1.25 and rnd.random() < 0.5)
         if vertical:
             cut = round(w * rnd.uniform(0.35, 0.65) / snap) * snap
-            cut = max(snap * 2, min(w - snap * 2, cut))
+            cut = max(snap, min(w - snap, cut))
             split(x0, z0, cut, h, d + 1)
             split(x0 + cut, z0, w - cut, h, d + 1)
         else:
             cut = round(h * rnd.uniform(0.35, 0.65) / snap) * snap
-            cut = max(snap * 2, min(h - snap * 2, cut))
+            cut = max(snap, min(h - snap, cut))
             split(x0, z0, w, cut, d + 1)
             split(x0, z0 + cut, w, h - cut, d + 1)
     split(-W / 2.0, -H / 2.0, W, H, 0)
