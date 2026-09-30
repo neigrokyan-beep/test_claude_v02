@@ -141,7 +141,7 @@ add_ud(ctrl, UD, "Hero Width (U)", "int", 6, 0, 20, 1)
 add_ud(ctrl, UD, "Hero Depth (U)", "int", 4, 0, 12, 1)
 add_ud(ctrl, UD, "Hero Height", "float", 0.8, 0.1, 3.0, 0.05, slider=True)
 add_ud(ctrl, UD, "Tile Unit", "float", 100.0, 20.0, 400.0, 1.0)
-add_ud(ctrl, UD, "Gap", "float", 0.035, 0.0, 0.2, 0.005, slider=True)
+add_ud(ctrl, UD, "Gap", "float", 0.06, 0.0, 0.2, 0.005, slider=True)
 add_ud(ctrl, UD, "Step Height", "float", 1.0, 0.0, 3.0, 0.05, slider=True)
 add_ud(ctrl, UD, "Screens", "float", 1.0, 0.0, 2.0, 0.05, slider=True)
 add_ud(ctrl, UD, "Wave Amount", "float", 0.03, 0.0, 0.3, 0.005, slider=True)
@@ -222,48 +222,56 @@ def clamp(x, a=0.0, b=1.0):
 
 
 def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset, HW=0, HD=0, HH=0.8):
-    """Modular field: every plate is a cube-module block on one integer grid (units of U)."""
+    """Bento grid: integer cells on one grid (units of U), first-fit packing row by row, hero block in the centre.
+    All cells share one top plane; a few cells are raised by a whole step. No overlaps by construction."""
     rnd = random.Random(seed)
-    W, H = NU * U, NV * U
-    leaves = []
-
-    def split(x0, z0, w, h, d):
-        mw, mh = int(round(w / U)), int(round(h / U))
-        area = mw * mh
-        small = (mw <= 1 and mh <= 1) or area <= 1
-        pstop = 0.0 if area > 20 else (0.15 if area > 10 else (0.4 if area > 5 else (0.6 if area > 2 else 0.8)))
-        if small or rnd.random() < pstop or d > 9:
-            leaves.append((x0, z0, w, h))
-            return
-        vertical = mw > mh or (mh == mw and rnd.random() < 0.5)
-        if vertical:
-            cut = max(1, min(mw - 1, int(round(mw * rnd.uniform(0.3, 0.7))))) * U
-            split(x0, z0, cut, h, d + 1)
-            split(x0 + cut, z0, w - cut, h, d + 1)
-        else:
-            cut = max(1, min(mh - 1, int(round(mh * rnd.uniform(0.3, 0.7))))) * U
-            split(x0, z0, w, cut, d + 1)
-            split(x0, z0 + cut, w, h - cut, d + 1)
+    gw, gh = int(NU), int(NV)
+    occ = [[False] * gh for _ in range(gw)]
     hero = None
-    if HW > 0 and HD > 0 and HW < NU - 1 and HD < NV - 1:
-        # bento: the centre is reserved for the hero block, the rest is cut into four frames around it
-        hx0 = -HW * U / 2.0
-        hz0 = -HD * U / 2.0
-        hero = (hx0, hz0, HW * U, HD * U)
-        split(-W / 2.0, -H / 2.0, W, hz0 + H / 2.0, 0)                                   # front strip
-        split(-W / 2.0, hz0 + HD * U, W, H / 2.0 - (hz0 + HD * U), 0)                    # back strip
-        split(-W / 2.0, hz0, hx0 + W / 2.0, HD * U, 0)                                   # left
-        split(hx0 + HW * U, hz0, W / 2.0 - (hx0 + HW * U), HD * U, 0)                    # right
-    else:
-        split(-W / 2.0, -H / 2.0, W, H, 0)
+    if HW > 0 and HD > 0 and HW < gw - 1 and HD < gh - 1:
+        hi0, hj0 = (gw - HW) // 2, (gh - HD) // 2
+        hero = (hi0, hj0, HW, HD)
+        for i in range(hi0, hi0 + HW):
+            for j in range(hj0, hj0 + HD):
+                occ[i][j] = True
+    sizes = [((1, 1), 16), ((2, 1), 12), ((1, 2), 10), ((2, 2), 12), ((3, 1), 3), ((1, 3), 3),
+             ((3, 2), 5), ((2, 3), 4), ((4, 2), 3), ((3, 3), 2), ((4, 1), 2)]
+
+    def free(i, j, w, h):
+        if i + w > gw or j + h > gh:
+            return False
+        for a_ in range(i, i + w):
+            for b_ in range(j, j + h):
+                if occ[a_][b_]:
+                    return False
+        return True
+    cells = []
+    for j in range(gh):
+        for i in range(gw):
+            if occ[i][j]:
+                continue
+            fit = [(sz, wt) for sz, wt in sizes if free(i, j, sz[0], sz[1])]
+            tot = sum(wt for _, wt in fit)
+            r = rnd.random() * tot
+            pick_sz = fit[-1][0]
+            for sz, wt in fit:
+                r -= wt
+                if r <= 0:
+                    pick_sz = sz
+                    break
+            w, h = pick_sz
+            for a_ in range(i, i + w):
+                for b_ in range(j, j + h):
+                    occ[a_][b_] = True
+            cells.append((i, j, w, h))
 
     plain = [("white", 12), ("grey", 14), ("yellow", 14), ("dark", 2)]
     big = [("white", 10), ("grey", 10), ("pyr", 16), ("perf", 8), ("fluted", 8), ("screen", 3 * screen_k),
            ("slots", 12), ("glass", 4), ("dark", 2), ("yellow", 12)]
-    mid = [("white", 12), ("grey", 12), ("yellow", 14), ("dark", 2), ("pyr", 14), ("slider", 12), ("slots", 10),
-           ("button_big", 8), ("buttons3", 6), ("screen", 1.5 * screen_k)]
-    small = [("white", 10), ("yellow", 18), ("button_big", 16), ("buttons3", 12), ("grey", 12), ("pyr", 10),
-             ("dark", 3), ("disc", 8)]
+    mid = [("white", 16), ("grey", 12), ("yellow", 9), ("dark", 2), ("pyr", 14), ("slider", 10), ("slots", 10),
+           ("button_big", 5), ("buttons3", 4), ("screen", 1.5 * screen_k)]
+    small = [("white", 20), ("grey", 14), ("yellow", 9), ("pyr", 14), ("button_big", 7), ("buttons3", 5),
+             ("dark", 2), ("disc", 4)]
     detail_only = ("pyr", "perf", "fluted", "screen", "slots", "glass", "slider", "button_big", "buttons3", "disc")
 
     def pick(tbl):
@@ -279,24 +287,25 @@ def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset, HW=0, HD=0, HH=0
                 return k
         return tbl[-1][0]
 
-    els = []
+    W, H = gw * U, gh * U
     R = 0.5 * math.sqrt(W * W + H * H)
-    for (x0, z0, w, h) in leaves:
-        area = w * h / (U * U)
-        kind = pick(big if area >= 6 else (mid if area >= 2.5 else small))
-        cx, cz = x0 + w / 2.0, z0 + h / 2.0
-        sw, sh = w - gap * U, h - gap * U
-        # heights are multiples of a quarter module; 1 in 6 leaves is a full cube
-        t = rnd.choice([0.125, 0.25, 0.25, 0.5]) * U
-        t += rnd.choice([0, 0, 0, 0, 0.25, 0.5]) * U * step_k
+    els = []
+    base_t = 0.3 * U
+    for (i, j, w, h) in cells:
+        area = w * h
+        kind = pick(big if area >= 6 else (mid if area >= 3 else small))
+        cx = -W / 2.0 + (i + w / 2.0) * U
+        cz = -H / 2.0 + (j + h / 2.0) * U
+        sw, sh = w * U - gap * U, h * U - gap * U
+        t = base_t
         if kind == "screen":
-            t = min(w, h) * rnd.choice([0.5, 0.75, 1.0]) * 0.98
+            t = base_t + 0.3 * U * step_k
         elif kind == "glass":
-            t = 0.25 * U
-        elif kind in ("pyr", "perf", "fluted"):
-            t = rnd.choice([0.125, 0.25]) * U
-        elif kind in ("white", "grey") and rnd.random() < 0.16 and min(w, h) >= 1.5 * U:
-            t = min(w, h) * rnd.choice([0.5, 1.0]) * 0.98
+            t = base_t + 0.1 * U
+        elif rnd.random() < 0.12 * step_k and area >= 2:
+            t = base_t + 0.3 * U * step_k
+        elif rnd.random() < 0.05 * step_k and kind in ("white", "grey") and min(w, h) >= 2:
+            t = base_t + min(w, h) * U * 0.5
         rr = math.hypot(cx, cz) / R
         ang = math.atan2(cz, cx)
         els.append({"kind": kind, "cx": cx, "cz": cz, "w": sw, "h": sh, "t": t,
@@ -304,12 +313,13 @@ def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset, HW=0, HD=0, HH=0
                     "sdx": math.cos(ang) if abs(math.cos(ang)) > abs(math.sin(ang)) else 0.0,
                     "sdz": math.sin(ang) if abs(math.cos(ang)) <= abs(math.sin(ang)) else 0.0,
                     "sdist": rnd.uniform(0.5, 1.0), "srot": rnd.uniform(-0.45, 0.45),
-                    "card": 1 if (kind == "yellow" and area < 6 and rnd.random() < 0.4) else 0,
+                    "card": 1 if (kind == "yellow" and area <= 2 and rnd.random() < 0.4) else 0,
                     "ph": rnd.random() * 6.283})
     if hero is not None:
-        x0, z0, w, h = hero
-        els.append({"kind": "hero", "cx": x0 + w / 2.0, "cz": z0 + h / 2.0, "w": w - gap * U, "h": h - gap * U,
-                    "t": HH * U, "delay": 0.0, "sdx": 0.0, "sdz": 0.0, "sdist": 0.0, "srot": 0.0,
+        hi0, hj0, hw_, hd_ = hero
+        els.append({"kind": "hero", "cx": -W / 2.0 + (hi0 + hw_ / 2.0) * U, "cz": -H / 2.0 + (hj0 + hd_ / 2.0) * U,
+                    "w": hw_ * U - gap * U, "h": hd_ * U - gap * U,
+                    "t": base_t + HH * U, "delay": 0.0, "sdx": 0.0, "sdz": 0.0, "sdist": 0.0, "srot": 0.0,
                     "card": 0, "ph": 0.0})
     return els
 
@@ -320,7 +330,7 @@ def parts_for(el, U):
     base = {"white": "white", "grey": "grey", "dark": "dark", "yellow": "yellow", "pyr": None, "perf": "perf_grey",
             "fluted": "fluted_yellow", "screen": "white", "slots": "white", "glass": "glass", "slider": "white",
             "button_big": None, "buttons3": "dark", "disc": "white", "hero": "white"}[k]
-    rr = min(0.05 * U, t * 0.45)
+    rr = min(0.09 * U, t * 0.45)
     if k == "pyr":
         base = ["pyr_white", "pyr_grey", "pyr_yellow", "pyr_grey"][int(el["ph"] * 10) % 4]
     if k == "button_big":
