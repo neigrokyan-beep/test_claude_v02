@@ -11,7 +11,7 @@ Houdini re-opens the last scene by itself (see houdini_autostart.py). C4D starts
 the scene has to be loaded from the cloud side.
 
 Pause: create the file  Passes/test/watchdog.hold  in the Watch_assembly task folder
-(or set HOLD below). Log: Passes/test/_watchdog.log in the same folder.
+(or set HOLD below). Leave one program alone: create Passes/test/skip_c4d.flag (or skip_houdini.flag) there. Log: Passes/test/_watchdog.log in the same folder.
 """
 import ctypes
 import ctypes.wintypes as wt
@@ -27,6 +27,7 @@ VAULT = r"G:\todoist_obsidian_claude"
 TASK = os.path.join(VAULT, "Projects", "claude", "Watch_assembly", "Passes", "test")
 LOG = os.path.join(TASK, "_watchdog.log")
 HOLD = os.path.join(TASK, "watchdog.hold")
+SKIP = os.path.join(TASK, "skip_%s.flag")   # skip_c4d.flag / skip_houdini.flag: do not touch that program (the user works in it)
 
 HOU_EXE = r"F:\Steam\steamapps\common\Houdini Indie\bin\hindie.steam.exe"
 HOU_PROC = "hindie.steam.exe"
@@ -156,6 +157,8 @@ def launch(name):
 
 
 def tick(name, pids, hung):
+    if os.path.exists(SKIP % name):
+        return
     cfg, st = APPS[name], STATE[name]
     now = time.time()
     proc = cfg["proc"].lower()
