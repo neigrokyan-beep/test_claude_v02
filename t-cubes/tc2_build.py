@@ -243,13 +243,13 @@ def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset):
             split(x0, z0 + cut, w, h - cut, d + 1)
     split(-W / 2.0, -H / 2.0, W, H, 0)
 
-    plain = [("white", 26), ("grey", 12), ("yellow", 14), ("dark", 6)]
-    big = [("white", 20), ("grey", 10), ("pyr", 14), ("perf", 8), ("fluted", 6), ("screen", 9 * screen_k),
-           ("slots", 10), ("glass", 6), ("dark", 6), ("yellow", 10)]
-    mid = [("white", 22), ("grey", 10), ("yellow", 14), ("dark", 6), ("pyr", 12), ("slider", 10), ("slots", 8),
-           ("button_big", 8), ("buttons3", 6), ("screen", 3 * screen_k)]
+    plain = [("white", 28), ("grey", 12), ("yellow", 14), ("dark", 2)]
+    big = [("white", 20), ("grey", 10), ("pyr", 14), ("perf", 8), ("fluted", 6), ("screen", 3 * screen_k),
+           ("slots", 10), ("glass", 4), ("dark", 2), ("yellow", 10)]
+    mid = [("white", 24), ("grey", 10), ("yellow", 14), ("dark", 2), ("pyr", 12), ("slider", 10), ("slots", 8),
+           ("button_big", 8), ("buttons3", 6), ("screen", 1.5 * screen_k)]
     small = [("white", 18), ("yellow", 18), ("button_big", 16), ("buttons3", 12), ("grey", 10), ("pyr", 8),
-             ("dark", 8), ("disc", 8)]
+             ("dark", 3), ("disc", 8)]
     detail_only = ("pyr", "perf", "fluted", "screen", "slots", "glass", "slider", "button_big", "buttons3", "disc")
 
     def pick(tbl):
@@ -377,8 +377,8 @@ def ensure(op, doc):
     root.SetName("FIELD")
     # base slab under all plates (the seams between plates read as dark lines)
     bp, bq = [], []
-    cbox(bp, bq, 0.0, -0.2 * U - 0.002 * U, 0.0, (NU + 4) * U, 0.4 * U, (NV + 4) * U, 0.02 * U, FLIP)
-    base_o = poly_obj(bp, bq, "BASE", doc.SearchMaterial("tc_dark"))
+    cbox(bp, bq, 0.0, -0.2 * U - 0.002 * U, 0.0, (NU + 60) * U, 0.4 * U, (NV + 60) * U, 0.02 * U, FLIP)
+    base_o = poly_obj(bp, bq, "BASE", doc.SearchMaterial("tc_white"))
     base_o.InsertUnder(root)
     for i, el in enumerate(els):
         n = c4d.BaseObject(c4d.Onull)
@@ -440,12 +440,12 @@ try:
     dome = c4d.BaseObject(RSL)
     dome.SetName("DOME")
     dome[10000] = 4
-    dome[11004] = 0.35
+    dome[11004] = 1.1
     doc.InsertObject(dome)
     key = c4d.BaseObject(RSL)
     key.SetName("KEY_LIGHT")
     key[10000] = 3
-    key[11004] = 2.0
+    key[11004] = 5.0
     key[11016] = 1800.0
     key[11017] = 900.0
     key.SetRelPos(c4d.Vector(-900, 2200, -600))
