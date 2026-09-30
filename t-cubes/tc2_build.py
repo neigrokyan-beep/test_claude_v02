@@ -186,6 +186,7 @@ def gsg(key, code, tile, tint=None, vp=(200, 200, 200), space="object", sss=Fals
 
 
 gsg("white", "MC001_A313", 120.0, vp=(236, 239, 244))
+gsg("base", "MC001_A313", 120.0, tint=(0.66, 0.69, 0.74), vp=(165, 170, 180))
 gsg("grey", "MC001_A286", 120.0, vp=(122, 130, 142))
 gsg("dark", "MC001_A268", 120.0, vp=(24, 26, 30))
 gsg("yellow", "MC001_A318", 120.0, vp=(255, 222, 28))
@@ -218,37 +219,36 @@ def clamp(x, a=0.0, b=1.0):
 
 
 def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset):
+    """Modular field: every plate is a cube-module block on one integer grid (units of U)."""
     rnd = random.Random(seed)
     W, H = NU * U, NV * U
-    snap = 0.5 * U
     leaves = []
 
     def split(x0, z0, w, h, d):
-        area = w * h / (U * U)
-        small = min(w, h) < 1.05 * U or area < 1.8
-        pstop = 0.0 if area > 24 else (0.05 if area > 12 else (0.2 if area > 6 else 0.45))
+        mw, mh = int(round(w / U)), int(round(h / U))
+        area = mw * mh
+        small = (mw <= 1 and mh <= 1) or area <= 1
+        pstop = 0.0 if area > 20 else (0.15 if area > 10 else (0.4 if area > 5 else (0.6 if area > 2 else 0.8)))
         if small or rnd.random() < pstop or d > 9:
             leaves.append((x0, z0, w, h))
             return
-        vertical = w > h * 1.25 or (h <= w * 1.25 and rnd.random() < 0.5)
+        vertical = mw > mh or (mh == mw and rnd.random() < 0.5)
         if vertical:
-            cut = round(w * rnd.uniform(0.35, 0.65) / snap) * snap
-            cut = max(snap, min(w - snap, cut))
+            cut = max(1, min(mw - 1, int(round(mw * rnd.uniform(0.3, 0.7))))) * U
             split(x0, z0, cut, h, d + 1)
             split(x0 + cut, z0, w - cut, h, d + 1)
         else:
-            cut = round(h * rnd.uniform(0.35, 0.65) / snap) * snap
-            cut = max(snap, min(h - snap, cut))
+            cut = max(1, min(mh - 1, int(round(mh * rnd.uniform(0.3, 0.7))))) * U
             split(x0, z0, w, cut, d + 1)
             split(x0, z0 + cut, w, h - cut, d + 1)
     split(-W / 2.0, -H / 2.0, W, H, 0)
 
-    plain = [("white", 28), ("grey", 12), ("yellow", 14), ("dark", 2)]
-    big = [("white", 20), ("grey", 10), ("pyr", 14), ("perf", 8), ("fluted", 6), ("screen", 3 * screen_k),
-           ("slots", 10), ("glass", 4), ("dark", 2), ("yellow", 10)]
-    mid = [("white", 24), ("grey", 10), ("yellow", 14), ("dark", 2), ("pyr", 12), ("slider", 10), ("slots", 8),
+    plain = [("white", 12), ("grey", 14), ("yellow", 14), ("dark", 2)]
+    big = [("white", 10), ("grey", 10), ("pyr", 16), ("perf", 8), ("fluted", 8), ("screen", 3 * screen_k),
+           ("slots", 12), ("glass", 4), ("dark", 2), ("yellow", 12)]
+    mid = [("white", 12), ("grey", 12), ("yellow", 14), ("dark", 2), ("pyr", 14), ("slider", 12), ("slots", 10),
            ("button_big", 8), ("buttons3", 6), ("screen", 1.5 * screen_k)]
-    small = [("white", 18), ("yellow", 18), ("button_big", 16), ("buttons3", 12), ("grey", 10), ("pyr", 8),
+    small = [("white", 10), ("yellow", 18), ("button_big", 16), ("buttons3", 12), ("grey", 12), ("pyr", 10),
              ("dark", 3), ("disc", 8)]
     detail_only = ("pyr", "perf", "fluted", "screen", "slots", "glass", "slider", "button_big", "buttons3", "disc")
 
@@ -272,14 +272,17 @@ def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset):
         kind = pick(big if area >= 6 else (mid if area >= 2.5 else small))
         cx, cz = x0 + w / 2.0, z0 + h / 2.0
         sw, sh = w - gap * U, h - gap * U
-        t = rnd.choice([0.08, 0.12, 0.18, 0.26]) * U
-        t += rnd.choice([0, 0, 0, 0.06, 0.12, 0.3]) * U * step_k
+        # heights are multiples of a quarter module; 1 in 6 leaves is a full cube
+        t = rnd.choice([0.125, 0.25, 0.25, 0.5]) * U
+        t += rnd.choice([0, 0, 0, 0, 0.25, 0.5]) * U * step_k
         if kind == "screen":
-            t = rnd.choice([0.35, 0.55, 0.8]) * U
+            t = min(w, h) * rnd.choice([0.5, 0.75, 1.0]) * 0.98
         elif kind == "glass":
-            t = 0.16 * U
+            t = 0.25 * U
         elif kind in ("pyr", "perf", "fluted"):
-            t = rnd.choice([0.05, 0.08]) * U
+            t = rnd.choice([0.125, 0.25]) * U
+        elif kind in ("white", "grey") and rnd.random() < 0.16 and min(w, h) >= 1.5 * U:
+            t = min(w, h) * rnd.choice([0.5, 1.0]) * 0.98
         rr = math.hypot(cx, cz) / R
         ang = math.atan2(cz, cx)
         els.append({"kind": kind, "cx": cx, "cz": cz, "w": sw, "h": sh, "t": t,
@@ -378,7 +381,7 @@ def ensure(op, doc):
     # base slab under all plates (the seams between plates read as dark lines)
     bp, bq = [], []
     cbox(bp, bq, 0.0, -0.2 * U - 0.002 * U, 0.0, (NU + 60) * U, 0.4 * U, (NV + 60) * U, 0.02 * U, FLIP)
-    base_o = poly_obj(bp, bq, "BASE", doc.SearchMaterial("tc_white"))
+    base_o = poly_obj(bp, bq, "BASE", doc.SearchMaterial("tc_base"))
     base_o.InsertUnder(root)
     for i, el in enumerate(els):
         n = c4d.BaseObject(c4d.Onull)
