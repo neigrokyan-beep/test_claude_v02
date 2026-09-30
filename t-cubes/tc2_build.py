@@ -375,6 +375,11 @@ def ensure(op, doc):
     els = make_layout(seed, NU, NV, U, gap * 1.0, stepk, scrk, preset)
     root = c4d.BaseObject(c4d.Onull)
     root.SetName("FIELD")
+    # base slab under all plates (the seams between plates read as dark lines)
+    bp, bq = [], []
+    cbox(bp, bq, 0.0, -0.2 * U - 0.002 * U, 0.0, (NU + 4) * U, 0.4 * U, (NV + 4) * U, 0.02 * U, FLIP)
+    base_o = poly_obj(bp, bq, "BASE", doc.SearchMaterial("tc_dark"))
+    base_o.InsertUnder(root)
     for i, el in enumerate(els):
         n = c4d.BaseObject(c4d.Onull)
         n.SetName("E_%03d_%s" % (i, el["kind"]))
@@ -398,7 +403,7 @@ def main():
     prog, amp, spd, cards, tm = g("Prog"), g("Wave"), v("Wave Speed"), g("Cards"), g("Time")
     root = CACHE["proto"].GetClone(c4d.COPYFLAGS_0)
     els = CACHE["els"]
-    kids = root.GetChildren()
+    kids = root.GetChildren()[1:]
     for el, n in zip(els, kids):
         d = clamp((prog - el["delay"]) / 0.35)
         e = 1.0 - (1.0 - d) ** 4
