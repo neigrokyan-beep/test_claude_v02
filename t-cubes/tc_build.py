@@ -138,8 +138,8 @@ add_ud(ctrl, "Count Z", "int", 16, 2, 40, 1)
 add_ud(ctrl, "Tile Size", "float", 100.0, 20.0, 400.0, 1.0)
 add_ud(ctrl, "Gap", "float", 6.0, 0.0, 60.0, 0.5)
 add_ud(ctrl, "Rounding", "float", 6.0, 0.0, 30.0, 0.5)
-add_ud(ctrl, "Height", "float", 90.0, 0.0, 600.0, 5.0, slider=True)
-add_ud(ctrl, "Tall Blocks", "float", 260.0, 0.0, 1200.0, 10.0, slider=True)
+add_ud(ctrl, "Height", "float", 24.0, 0.0, 600.0, 5.0, slider=True)
+add_ud(ctrl, "Tall Blocks", "float", 130.0, 0.0, 1200.0, 10.0, slider=True)
 add_ud(ctrl, "Wave Amount", "float", 0.6, 0.0, 3.0, 0.05, slider=True)
 add_ud(ctrl, "Wave Speed", "float", 0.8, 0.0, 6.0, 0.05, slider=True)
 add_ud(ctrl, "Wave Size", "float", 1.0, 0.1, 5.0, 0.05, slider=True)
@@ -245,7 +245,7 @@ e_raise = c4d.BaseObject(c4d.Omgrandom)
 e_raise.SetName("E_RAISE")
 e_raise.InsertUnder(fx)
 e_raise[c4d.ID_MG_BASEEFFECTOR_POSITION_ACTIVE] = True
-e_raise[c4d.ID_MG_BASEEFFECTOR_POSITION] = c4d.Vector(0, 90, 0)
+e_raise[c4d.ID_MG_BASEEFFECTOR_POSITION] = c4d.Vector(0, 24, 0)
 e_raise[c4d.ID_MG_BASEEFFECTOR_MINSTRENGTH] = 0.0
 e_raise[c4d.ID_MG_BASEEFFECTOR_MAXSTRENGTH] = 1.0
 e_raise[c4d.MGRANDOMEFFECTOR_SYNC] = True
@@ -254,8 +254,8 @@ e_tall = c4d.BaseObject(c4d.Omgrandom)
 e_tall.SetName("E_TALL")
 e_tall.InsertUnder(fx)
 e_tall[c4d.ID_MG_BASEEFFECTOR_POSITION_ACTIVE] = True
-e_tall[c4d.ID_MG_BASEEFFECTOR_POSITION] = c4d.Vector(0, 260, 0)
-e_tall[c4d.ID_MG_BASEEFFECTOR_MINSTRENGTH] = -0.25
+e_tall[c4d.ID_MG_BASEEFFECTOR_POSITION] = c4d.Vector(0, 130, 0)
+e_tall[c4d.ID_MG_BASEEFFECTOR_MINSTRENGTH] = -0.1
 e_tall[c4d.ID_MG_BASEEFFECTOR_MAXSTRENGTH] = 1.0
 e_tall[c4d.MGRANDOMEFFECTOR_SYNC] = True
 
