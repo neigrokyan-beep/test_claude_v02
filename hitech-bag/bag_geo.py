@@ -247,16 +247,16 @@ def build(params=None):
     # --- корпус: скруглённый семиугольник по схеме
     body_px = [(140, 330), (300, 192), (585, 190), (612, 215), (612, 550), (285, 555), (140, 470)]
     body = [px(p) for p in body_px]
-    outline = round_poly(body, 2.0, 64)
-    layers = [(0.0, 0.0), (0.0, 0.5 * D), (0.35, 0.82 * D), (1.1, 0.96 * D), (1.7, D)]
-    parts['Bag_Body'] = solid_from_outline(outline, layers, 16, dome=0.55, col=cs['body'],
+    outline = round_poly(body, 1.3, 64)
+    layers = [(0.0, 0.0), (0.0, 0.62 * D), (0.0, 0.9 * D), (0.22, 0.965 * D), (0.6, D)]
+    parts['Bag_Body'] = solid_from_outline(outline, layers, 16, dome=0.3, col=cs['body'],
                                            gap_cols=[cs['body2'], cs['body'], cs['body'], cs['body']], back_col=cs['body2'])
 
     # --- клапан-клин сверху (откинут назад на 22 градуса вокруг верхней кромки корпуса)
     flap_px = [(300, 186), (416, 194), (526, 58), (588, 88), (603, 190), (586, 192)]
-    flap = round_poly([px(p) for p in flap_px], 1.2, 48)
-    fl = solid_from_outline(flap, [(0.0, 0.0), (0.0, 1.1), (0.4, 1.6), (0.9, 1.9)], 12, dome=0.25, col=cs['body'],
-                            gap_cols=[cs['body2'], cs['body'], cs['body']], back_col=cs['body2'])
+    flap = round_poly([px(p) for p in flap_px], 0.9, 48)
+    fl = solid_from_outline(flap, [(0.0, 0.0), (0.0, 1.2), (0.0, 1.7), (0.18, 1.9), (0.45, 2.0)], 12, dome=0.12, col=cs['body'],
+                            gap_cols=[cs['body2'], cs['body'], cs['body'], cs['body']], back_col=cs['body2'])
     hinge_y = px((0, 190))[1]
     Rf = bm.rot_x(math.radians(-22.0))
     fl2 = Mesh()
@@ -266,7 +266,7 @@ def build(params=None):
     parts['Bag_Flap'] = tmp
 
     # --- ушко со щелью (над лямкой, слева сверху)
-    tc = px((225, 125))
+    tc = px((240, 152))
     tab_out = squircle(3.7, 4.1, 3.0, 48)
     tab_in = squircle(1.0, 2.6, 6.0, 48)
     tab = ring_plate(tab_out, tab_in, 0.7, rows=3, col=cs['body2'], inner_col=DARK)
@@ -292,8 +292,8 @@ def build(params=None):
         parts['Bag_Pocket'] = xform(pocket, None, (pc[0], pc[1], D * 0.72))
         dev_outline = squircle(pw, ph, 5.0, 48)
         dz = 3.4
-        dl = [(0.0, 0.0), (0.0, 0.5 * dz), (0.35, 0.84 * dz), (0.85, dz), (1.15, dz - 0.04), (1.15, dz - 0.32)]
-        gcols = [cs['pod'], cs['pod'], cs['pod'], cs['pod'], cs['pod']]
+        dl = [(0.0, 0.0), (0.0, 0.6 * dz), (0.0, 0.9 * dz), (0.2, 0.97 * dz), (0.5, dz), (0.9, dz), (1.1, dz - 0.05), (1.1, dz - 0.3)]
+        gcols = [cs['pod']] * 7
         dev = solid_from_outline(dev_outline, dl, 12, dome=0.0, col=cs['pod'], gap_cols=gcols, back_col=cs['pod'], front_col=WINDOW)
         parts['Bag_Device'] = xform(dev, None, (pc[0], pc[1], D * 0.72 - 0.4))
         # кнопки и ползунок на верхней грани девайса (как у Chatbox)

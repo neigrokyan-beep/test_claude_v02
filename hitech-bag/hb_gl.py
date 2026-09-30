@@ -20,7 +20,7 @@ def setup():
     r = out.node("gl_bag")
     if r is None:
         r = out.createNode("opengl", "gl_bag")
-    for k, v in dict(camera="/obj/CAM_BAG", vobjects="BAG GROUND", tres=1, res1=1280, res2=720).items():
+    for k, v in dict(camera="/obj/CAM_BAG", vobjects="BAG GROUND", tres=1, res1=1280, res2=720, usetextures=0).items():
         try:
             r.parm(k).set(v)
         except Exception as e:
