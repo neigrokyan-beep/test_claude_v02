@@ -417,15 +417,15 @@ def ensure(op, doc):
     bp, bq = [], []
     cbox(bp, bq, 0.0, -0.2 * U - 0.002 * U, 0.0, (NU + 60) * U, 0.4 * U, (NV + 60) * U, 0.02 * U, FLIP)
     base_o = poly_obj(bp, bq, "BASE", doc.SearchMaterial("tc_base"))
-    base_o.InsertUnder(root)
+    base_o.InsertUnderLast(root)
     for i, el in enumerate(els):
         n = c4d.BaseObject(c4d.Onull)
         n.SetName("E_%03d_%s" % (i, el["kind"]))
         for mk, (P, Q) in build_element(el, U).items():
             mat = doc.SearchMaterial("tc_" + mk)
             o = poly_obj(P, Q, mk, mat)
-            o.InsertUnder(n)
-        n.InsertUnder(root)
+            o.InsertUnderLast(n)
+        n.InsertUnderLast(root)
     CACHE["key"], CACHE["els"], CACHE["proto"] = key, els, root
 
 
@@ -441,8 +441,14 @@ def main():
     prog, amp, spd, cards, tm = g("Prog"), g("Wave"), v("Wave Speed"), g("Cards"), g("Time")
     root = CACHE["proto"].GetClone(c4d.COPYFLAGS_0)
     els = CACHE["els"]
-    kids = root.GetChildren()[1:]
-    for el, n in zip(els, kids):
+    kids = [k for k in root.GetChildren() if k.GetName().startswith("E_")]
+    byidx = {}
+    for k in kids:
+        byidx[int(k.GetName()[2:5])] = k
+    for idx, el in enumerate(els):
+        n = byidx.get(idx)
+        if n is None:
+            continue
         d = clamp((prog - el["delay"]) / 0.35)
         e = 1.0 - (1.0 - d) ** 4
         sx = el["sdx"] * el["sdist"] * sld * U * (1.0 - e)
