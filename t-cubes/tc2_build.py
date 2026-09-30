@@ -137,6 +137,9 @@ add_ud(ctrl, UD, "Preset", "cycle", 0, cycle=["Mix (reference)", "Plain plates o
 add_ud(ctrl, UD, "Seed", "int", 21, 0, 9999, 1)
 add_ud(ctrl, UD, "Field Width (U)", "int", 26, 6, 60, 1)
 add_ud(ctrl, UD, "Field Depth (U)", "int", 15, 4, 40, 1)
+add_ud(ctrl, UD, "Hero Width (U)", "int", 6, 0, 20, 1)
+add_ud(ctrl, UD, "Hero Depth (U)", "int", 4, 0, 12, 1)
+add_ud(ctrl, UD, "Hero Height", "float", 0.8, 0.1, 3.0, 0.05, slider=True)
 add_ud(ctrl, UD, "Tile Unit", "float", 100.0, 20.0, 400.0, 1.0)
 add_ud(ctrl, UD, "Gap", "float", 0.035, 0.0, 0.2, 0.005, slider=True)
 add_ud(ctrl, UD, "Step Height", "float", 1.0, 0.0, 3.0, 0.05, slider=True)
@@ -218,7 +221,7 @@ def clamp(x, a=0.0, b=1.0):
     return a if x < a else (b if x > b else x)
 
 
-def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset):
+def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset, HW=0, HD=0, HH=0.8):
     """Modular field: every plate is a cube-module block on one integer grid (units of U)."""
     rnd = random.Random(seed)
     W, H = NU * U, NV * U
@@ -241,7 +244,18 @@ def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset):
             cut = max(1, min(mh - 1, int(round(mh * rnd.uniform(0.3, 0.7))))) * U
             split(x0, z0, w, cut, d + 1)
             split(x0, z0 + cut, w, h - cut, d + 1)
-    split(-W / 2.0, -H / 2.0, W, H, 0)
+    hero = None
+    if HW > 0 and HD > 0 and HW < NU - 1 and HD < NV - 1:
+        # bento: the centre is reserved for the hero block, the rest is cut into four frames around it
+        hx0 = -HW * U / 2.0
+        hz0 = -HD * U / 2.0
+        hero = (hx0, hz0, HW * U, HD * U)
+        split(-W / 2.0, -H / 2.0, W, hz0 + H / 2.0, 0)                                   # front strip
+        split(-W / 2.0, hz0 + HD * U, W, H / 2.0 - (hz0 + HD * U), 0)                    # back strip
+        split(-W / 2.0, hz0, hx0 + W / 2.0, HD * U, 0)                                   # left
+        split(hx0 + HW * U, hz0, W / 2.0 - (hx0 + HW * U), HD * U, 0)                    # right
+    else:
+        split(-W / 2.0, -H / 2.0, W, H, 0)
 
     plain = [("white", 12), ("grey", 14), ("yellow", 14), ("dark", 2)]
     big = [("white", 10), ("grey", 10), ("pyr", 16), ("perf", 8), ("fluted", 8), ("screen", 3 * screen_k),
@@ -292,6 +306,11 @@ def make_layout(seed, NU, NV, U, gap, step_k, screen_k, preset):
                     "sdist": rnd.uniform(0.5, 1.0), "srot": rnd.uniform(-0.45, 0.45),
                     "card": 1 if (kind == "yellow" and area < 6 and rnd.random() < 0.4) else 0,
                     "ph": rnd.random() * 6.283})
+    if hero is not None:
+        x0, z0, w, h = hero
+        els.append({"kind": "hero", "cx": x0 + w / 2.0, "cz": z0 + h / 2.0, "w": w - gap * U, "h": h - gap * U,
+                    "t": HH * U, "delay": 0.0, "sdx": 0.0, "sdz": 0.0, "sdist": 0.0, "srot": 0.0,
+                    "card": 0, "ph": 0.0})
     return els
 
 
@@ -300,8 +319,8 @@ def parts_for(el, U):
     k, w, h, t = el["kind"], el["w"], el["h"], el["t"]
     base = {"white": "white", "grey": "grey", "dark": "dark", "yellow": "yellow", "pyr": None, "perf": "perf_grey",
             "fluted": "fluted_yellow", "screen": "white", "slots": "white", "glass": "glass", "slider": "white",
-            "button_big": None, "buttons3": "dark", "disc": "white"}[k]
-    rr = min(0.012 * U, t * 0.45)
+            "button_big": None, "buttons3": "dark", "disc": "white", "hero": "white"}[k]
+    rr = min(0.05 * U, t * 0.45)
     if k == "pyr":
         base = ["pyr_white", "pyr_grey", "pyr_yellow", "pyr_grey"][int(el["ph"] * 10) % 4]
     if k == "button_big":
@@ -337,6 +356,11 @@ def parts_for(el, U):
         P.append(("screen", "box", (0, top + 0.01 * U, 0, w - 0.3 * U, 0.02 * U, h - 0.3 * U, 0.004 * U)))
     elif k == "disc":
         P.append(("yellow", "cyl", (0, top, 0, 0.4 * m, 0.06 * U)))
+    elif k == "hero":
+        # bento centrepiece: white body, deep black screen with a raised bezel (content goes here)
+        P.append(("screen", "box", (0, top + 0.012 * U, 0, w - 0.5 * U, 0.024 * U, h - 0.5 * U, 0.01 * U)))
+        P.append(("chrome", "box", (0, top + 0.004 * U, 0, w - 0.4 * U, 0.008 * U, h - 0.4 * U, 0.003 * U)))
+        P.append(("yellow", "box", (0, top + 0.03 * U, -(h - 0.5 * U) / 2.0 + 0.08 * U, (w - 0.5 * U) * 0.35, 0.012 * U, 0.04 * U, 0.004 * U)))
     return P
 
 
@@ -372,10 +396,11 @@ def ensure(op, doc):
     v = lambda n: ctrl[c4d.ID_USERDATA, UD[n]]
     seed, NU, NV = v("Seed"), v("Field Width (U)"), v("Field Depth (U)")
     U, gap, stepk, scrk, preset = v("Tile Unit"), v("Gap"), v("Step Height"), v("Screens"), v("Preset")
-    key = (seed, NU, NV, round(U, 3), round(gap, 4), round(stepk, 3), round(scrk, 3), preset, "__STAMP__")
+    HW, HD, HH = v("Hero Width (U)"), v("Hero Depth (U)"), v("Hero Height")
+    key = (seed, NU, NV, round(U, 3), round(gap, 4), round(stepk, 3), round(scrk, 3), preset, HW, HD, round(HH, 3), "__STAMP__")
     if CACHE["key"] == key and CACHE["proto"] is not None:
         return
-    els = make_layout(seed, NU, NV, U, gap * 1.0, stepk, scrk, preset)
+    els = make_layout(seed, NU, NV, U, gap * 1.0, stepk, scrk, preset, HW, HD, HH)
     root = c4d.BaseObject(c4d.Onull)
     root.SetName("FIELD")
     # base slab under all plates (the seams between plates read as dark lines)
@@ -529,7 +554,7 @@ def main():
     gen = doc.SearchObject("GEN")
     if gen is not None:
         stamp = 0.0
-        for n in ("Preset", "Seed", "Field Width (U)", "Field Depth (U)", "Tile Unit", "Gap", "Step Height", "Screens", "Wave Speed", "Slide Distance"):
+        for n in ("Preset", "Seed", "Field Width (U)", "Field Depth (U)", "Hero Width (U)", "Hero Depth (U)", "Hero Height", "Tile Unit", "Gap", "Step Height", "Screens", "Wave Speed", "Slide Distance"):
             stamp += float(ud(n)) * (1.0 + 0.37 * (hash(n) % 7))
         vals = (("Prog", prog), ("Wave", wave), ("Cards", cards), ("Stamp", stamp), ("Time", sec))
         for n, val in vals:
