@@ -119,9 +119,18 @@ try {
     }
     Write-Host "Logs: $Logs.  Ctrl+C to stop."
 
+    $gwRestarts = 0
     while ($true) {
         Start-Sleep -Seconds 2
-        foreach ($name in $procs.Keys) {
+        # The gateway is restarted in place (the tunnel, and so the connector URL, stays the same).
+        if ($procs["gateway"].Process.HasExited -and $gwRestarts -lt 5) {
+            $gwRestarts++
+            Write-Host "Gateway stopped (exit code $($procs['gateway'].Process.ExitCode)), restarting ($gwRestarts/5) ..." -ForegroundColor Yellow
+            Start-Part "gateway" $gwPy @("`"$(Join-Path $Root 'gateway\gateway.py')`"", "--config", "`"$cfgPath`"", "--port", $Port) `
+                $gwLog (Join-Path $Logs "gateway.out.log")
+            Start-Sleep -Seconds 4
+        }
+        foreach ($name in @($procs.Keys)) {
             $part = $procs[$name]
             if ($part.Process.HasExited) {
                 Write-Host ""
