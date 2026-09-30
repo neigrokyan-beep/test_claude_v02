@@ -45,8 +45,10 @@ DETACHED = 0x00000008 | 0x00000200 | 0x01000000  # DETACHED_PROCESS | NEW_PROCES
 NO_WINDOW = 0x08000000
 
 APPS = {
-    "houdini": dict(proc=HOU_PROC, port=HOU_PORT, hang_limit=300, port_limit=420, cooldown=150),
-    "c4d": dict(proc=C4D_PROC, port=C4D_PORT, hang_limit=240, port_limit=600, cooldown=150),
+    # port_kill=False: a live, responding program with a closed MCP port is NOT killed (Houdini sat in a
+    # kill/relaunch loop every ~7 min when the MCP server did not start; the user lost his work). Only logged.
+    "houdini": dict(proc=HOU_PROC, port=HOU_PORT, hang_limit=300, port_limit=420, cooldown=150, port_kill=False),
+    "c4d": dict(proc=C4D_PROC, port=C4D_PORT, hang_limit=240, port_limit=600, cooldown=150, port_kill=True),
 }
 STATE = {k: dict(last_launch=0.0, port_down=None, hung=None, launches=[]) for k in APPS}
 GW = dict(down=None)
@@ -190,7 +192,7 @@ def launch(name):
 
 
 def tick(name, pids, hung):
-    if os.path.exists(SKIP % name):
+    if os.path.exists(SKIP % name) or os.path.exists((SKIP % name)[:-5] + ".txt"):
         return
     cfg, st = APPS[name], STATE[name]
     now = time.time()
@@ -212,10 +214,15 @@ def tick(name, pids, hung):
         st["hung"] = None
     if port_open(cfg["port"]):
         st["port_down"] = None
+        st["warned"] = False
     else:
         base = max(st["port_down"] or now, st["last_launch"])
         st["port_down"] = st["port_down"] or now
-        if now - base > cfg["port_limit"]:
+        if now - base > cfg["port_limit"] and not cfg.get("port_kill", True):
+            if not st.get("warned"):
+                log("%s: MCP port %d closed for %ds, program is alive: NOT killing (start the MCP server in it)" % (name, cfg["port"], now - base))
+                st["warned"] = True
+        elif now - base > cfg["port_limit"]:
             log("%s: MCP port %d closed for %ds, killing" % (name, cfg["port"], now - base))
             kill(cfg["proc"], pids)
             st["port_down"] = None
