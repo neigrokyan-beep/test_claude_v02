@@ -182,7 +182,7 @@ sweep = c4d.BaseObject(c4d.Flinear)
 sweep.SetName("F_SWEEP")
 sweep.InsertUnder(fields)
 sweep[1005014] = True                       # Invert: впереди фронта = 1 (разлетелись), позади = 0 (собраны)
-sweep[1005025] = 600.0                      # Length
+sweep[1000] = 600.0                      # Length
 sweep.SetRelRot(c4d.Vector(-1.5708, 0, 0))  # направление градиента (локальный Z) вдоль +X
 
 
@@ -341,8 +341,8 @@ def main():
     L = max(span * fw, pitch)
     fld = obj("F_SWEEP")
     if fld is not None:
-        if abs(fld[1005025] - L) > 1e-6:
-            fld[1005025] = L
+        if abs(fld[1000] - L) > 1e-6:
+            fld[1000] = L
         x = (-span * 0.5 - L) + ((span * 0.5) - (-span * 0.5 - L)) * prog
         p = fld.GetRelPos()
         if abs(p.x - x) > 1e-6:
