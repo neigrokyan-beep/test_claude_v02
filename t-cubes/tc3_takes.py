@@ -15,7 +15,7 @@ import c4d
 
 FPS = 25
 ROOT = r"G:\todoist_obsidian_claude\Projects\claude\T_cubes"
-VER = "T_cubes_v006.c4d"
+VER = "T_cubes_v007.c4d"
 
 
 def find_doc(name):
@@ -71,6 +71,11 @@ SHOTS = [
     ("S15_close_out", 60.0, 66.0, (0.0, 11.0, 0.0), (0.0, 7.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 40, "v", 0.4, 0.0,
      dict(seed=21, hero=(6, 4), field=(26, 15), step=1.0)),
 ]
+
+
+# per shot: Action (how much the tiles/buttons/sliders move) and Cluster (yellow cube cloud over the hero, needs a hero)
+ACT = [0.3, 0.6, 1.0, 0.7, 1.0, 0.8, 1.0, 1.0, 0.8, 0.8, 1.0, 1.0, 0.9, 1.0, 0.5]
+CLU = [0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0]
 
 
 def smooth(t):
@@ -140,6 +145,12 @@ for nm in ("CAMS",):
     o = doc.SearchObject(nm)
     if o is not None:
         o.Remove()
+r_ = doc.GetFirstRenderData()
+while r_ is not None:
+    nx_ = r_.GetNext()
+    if r_.GetName().startswith("RD_S"):
+        r_.Remove()
+    r_ = nx_
 camroot = c4d.BaseObject(c4d.Onull)
 camroot.SetName("CAMS")
 doc.InsertObject(camroot)
@@ -193,11 +204,11 @@ def ud_did(name):
     return c4d.DescID(c4d.DescLevel(c4d.ID_USERDATA, c4d.DTYPE_SUBCONTAINER, 0), c4d.DescLevel(UD[name], c4d.DTYPE_REAL, 0))
 
 
-for old in ("Progress", "Wave Amount", "Cards Up"):
+for old in ("Progress", "Wave Amount", "Cards Up", "Action", "Cluster"):
     t = ctrl.FindCTrack(ud_did(old))
     if t is not None:
         t.Remove()
-prog, wave, cards = [], [], []
+prog, wave, cards, act, clu = [], [], [], [], []
 BUILD = 35                      # frames of the build-in at the start of every shot
 for n, shot in enumerate(SHOTS):
     f0, f1 = int(round(shot[1] * FPS)), int(round(shot[2] * FPS)) - 1
@@ -209,9 +220,18 @@ for n, shot in enumerate(SHOTS):
         prog.append((f1, 0.0, False))
     wave.append((f0, shot[9] * 0.05, True))
     cards.append((f0, shot[10], True))
+    act.append((f0, ACT[n], True))
+    if CLU[n]:
+        clu.append((f0, 0.0, False))
+        clu.append((min(f0 + 50, f1), 1.0, False))
+        clu.append((f1, 1.0, True))
+    else:
+        clu.append((f0, 0.0, True))
 real_track(ctrl, ud_did("Progress"), sorted(prog, key=lambda x: x[0]))
 real_track(ctrl, ud_did("Wave Amount"), wave)
 real_track(ctrl, ud_did("Cards Up"), cards)
+real_track(ctrl, ud_did("Action"), act)
+real_track(ctrl, ud_did("Cluster"), clu)
 
 # ---- takes
 for n, shot in enumerate(SHOTS):
@@ -223,8 +243,16 @@ for n, shot in enumerate(SHOTS):
     rd[c4d.RDATA_FRAMESEQUENCE] = c4d.RDATA_FRAMESEQUENCE_MANUAL
     rd[c4d.RDATA_FRAMEFROM] = c4d.BaseTime(f0, FPS)
     rd[c4d.RDATA_FRAMETO] = c4d.BaseTime(f1, FPS)
+    try:
+        rd[c4d.RDATA_GLOBALSAVE] = True
+        rd[c4d.RDATA_SAVEIMAGE] = True
+        rd[c4d.RDATA_PATH] = ROOT + "\\Passes\\takes\\" + shot[0] + "\\" + shot[0]
+        rd[c4d.RDATA_FORMAT] = c4d.FILTER_PNG
+    except Exception as e:
+        print("rd path err", str(e)[:60])
     doc.InsertRenderData(rd)
     take.SetRenderData(td, rd)
+    take.SetChecked(True)
     g = shot[11]
     vals = (("Seed", g["seed"]), ("Hero Width (U)", g["hero"][0]), ("Hero Depth (U)", g["hero"][1]),
             ("Field Width (U)", g["field"][0]), ("Field Depth (U)", g["field"][1]), ("Step Height", g["step"]))
