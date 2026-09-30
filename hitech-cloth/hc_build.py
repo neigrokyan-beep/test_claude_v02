@@ -190,7 +190,7 @@ def build():
     write_obj(os.path.join(out, "hc_pouch.obj"), grp_obj(pch, POUCH_POS))
 
     path = os.path.join(TASK, "C4D", "Hitech_cloth_v001.c4d")
-    ok = c4d.documents.SaveDocument(doc, path, c4d.SAVEDOCUMENTFLAGS_DONTADDTORECENTFILES, c4d.FORMAT_C4DEXPORT)
+    ok = c4d.documents.SaveDocument(doc, path, c4d.SAVEDOCUMENTFLAGS_DONTADDTORECENTLIST, c4d.FORMAT_C4DEXPORT)
     np_, nq = pat.stats(P)
     print("hitech_cloth: panels=%d pts=%d quads=%d seams=%d saved=%s" % (len(P), np_, nq, len(seams), ok))
     return doc
