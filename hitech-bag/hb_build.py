@@ -319,7 +319,7 @@ def build():
     sm.setInput(0, uvw)
     color(sm, C_SOP)
     sm.setPosition(V2(0, -10.6))
-    for nm in ("subdivide", "iterations", "depth"):
+    for nm in ("iterations", "depth"):
         if sm.parm(nm) is not None:
             sm.parm(nm).setExpression('ch("../CONTROLS/s_level")')
             break
