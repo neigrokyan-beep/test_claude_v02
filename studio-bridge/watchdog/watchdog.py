@@ -33,7 +33,8 @@ HOU_EXE = r"F:\Steam\steamapps\common\Houdini Indie\bin\hindie.steam.exe"
 HOU_PROC = "hindie.steam.exe"
 HOU_APPID = "502570"
 HOU_PORT = 19876
-C4D_EXE = r"F:\Cinema4d_2026_2\Cinema 4D.exe"
+C4D_DIR = r"F:\Cinema4d_2026_3"      # чистая Cinema для моста; другие установки C4D (Cinema4d_2026_2 и т.д.) не трогаем
+C4D_EXE = C4D_DIR + r"\Cinema 4D.exe"
 C4D_PROC = "Cinema 4D.exe"
 C4D_PORT = 5555
 GW_DIR = r"C:\studio\studio-bridge"
@@ -82,6 +83,34 @@ def running_pids():
     return out
 
 
+def proc_path(pid):
+    """Полный путь exe процесса (ctypes), пусто если не прочитать."""
+    k32 = ctypes.windll.kernel32
+    h = k32.OpenProcess(0x1000, False, int(pid))   # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        n = wt.DWORD(1024)
+        if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
+            return buf.value
+        return ""
+    finally:
+        k32.CloseHandle(h)
+
+
+def only_ours(pids_by_name):
+    """Для C4D оставить только процессы из C4D_DIR: чужие установки не считаем и не убиваем."""
+    key = C4D_PROC.lower()
+    mine = [p for p in pids_by_name.get(key, []) if proc_path(p).lower().startswith(C4D_DIR.lower())]
+    out = dict(pids_by_name)
+    if mine:
+        out[key] = mine
+    else:
+        out.pop(key, None)
+    return out
+
+
 def hung_names():
     names = set()
     for line in run(["tasklist", "/FI", "STATUS eq NOT RESPONDING", "/FO", "CSV", "/NH"]).splitlines():
@@ -98,7 +127,11 @@ def port_open(port):
         return False
 
 
-def kill(proc):
+def kill(proc, pids_by_name=None):
+    if proc.lower() == C4D_PROC.lower() and pids_by_name is not None:
+        for p in pids_by_name.get(proc.lower(), []):
+            run(["taskkill", "/F", "/T", "/PID", str(p)])
+        return
     run(["taskkill", "/F", "/T", "/IM", proc])
 
 
@@ -171,7 +204,7 @@ def tick(name, pids, hung):
         st["hung"] = st["hung"] or now
         if now - st["hung"] > cfg["hang_limit"]:
             log("%s: not responding for %ds, killing" % (name, now - st["hung"]))
-            kill(cfg["proc"])
+            kill(cfg["proc"], pids)
             st["hung"] = None
             st["last_launch"] = min(st["last_launch"], now - cfg["cooldown"] + 20)
             return
@@ -184,7 +217,7 @@ def tick(name, pids, hung):
         st["port_down"] = st["port_down"] or now
         if now - base > cfg["port_limit"]:
             log("%s: MCP port %d closed for %ds, killing" % (name, cfg["port"], now - base))
-            kill(cfg["proc"])
+            kill(cfg["proc"], pids)
             st["port_down"] = None
             st["last_launch"] = min(st["last_launch"], now - cfg["cooldown"] + 20)
 
@@ -223,7 +256,7 @@ def main():
     while True:
         try:
             if not os.path.exists(HOLD):
-                pids = running_pids()
+                pids = only_ours(running_pids())
                 hung = hung_names()
                 for name in APPS:
                     tick(name, pids, hung)
