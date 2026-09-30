@@ -309,7 +309,7 @@ def cameras(obj, g):
     sv = bb.sizevec()
     H = max(sv[1], 1.0)
     diag = (sv[0] ** 2 + sv[2] ** 2) ** 0.5
-    dist = 1.05 * max(1.98 * H, 1.11 * diag)          # чтобы рама целиком влезала в кадр 16:9 при focal 32
+    dist = 1.22 * max(1.98 * H, 1.11 * diag)          # чтобы рама целиком влезала в кадр 16:9 при focal 32
     rig = obj.node("CAM_RIG") or obj.createNode("null", "CAM_RIG")
     rig.parmTuple("t").set((c[0], H * 0.42, c[2]))
     rig.parm("ry").setExpression("-32 + 52*(1-pow(1-clamp(($F-1)/249,0,1),3))", hou.exprLanguage.Hscript)

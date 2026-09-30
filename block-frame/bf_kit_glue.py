@@ -47,7 +47,14 @@ def run():
     bm, bk = _bf_load(("bf_mesh", "bf_kit"))
     inp = node.inputGeometry(0)
     keys = sorted(set(inp.pointStringAttribValues("variant"))) if inp is not None else []
-    tint = recolor(bk, node.evalParm("look") if node.parm("look") is not None else 0)
+    raw_tint = recolor(bk, node.evalParm("look") if node.parm("look") is not None else 0)
+    memo = {}
+
+    def tint(c):                                       # цветов в палитре немного: считаем каждый один раз
+        r = memo.get(c)
+        if r is None:
+            r = memo[c] = raw_tint(c)
+        return r
     cache = bk._cache
     geo.clear()
     geo.addAttrib(hou.attribType.Prim, "variant", "")
