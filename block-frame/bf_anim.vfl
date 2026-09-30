@@ -1,0 +1,55 @@
+// bf_anim -- сборка по прогрессу. Attribute Wrangle (Points), каждый кадр. Вход: OUT_LAYOUT.
+// Ничего не накапливает: положение детали = функция прогресса, поэтому можно листать таймлайн куда угодно.
+//
+// Как работает: у каждой детали есть order (очерёдность 0..1: ножки -> рама снизу вверх -> панели ->
+// клипсы -> болты). Её старт st = order * (1 - dur) + шум; за долю dur всей сборки она долетает
+// из облака до своего места с торможением (easeOut степени ease: 4 = quart out).
+// Параметры (spare parms, ссылки на CONTROLS — подсказки там):
+//   auto        сборка идёт по таймлайну (иначе берётся manual)
+//   f_start     кадр начала сборки              f_len       длина сборки в кадрах
+//   manual      ручной прогресс 0..1            dur         доля сборки на полёт одной детали
+//   ease        степень торможения (4 = quart out)          jitter   шум порядка (0 = строго по order)
+//   dist        дальность облака, м (у детали свой множитель 0.5..1.5)
+//   dir_bias    0 = из случайной точки облака, 1 = вдоль оси детали (fdir)
+//   spin_amt    кувыркание в полёте (0 = без вращения)      anim_seed   сид движения
+//   bolt_dist   путь болта вдоль оси, м: болт вкручивается, вращаясь (spin оборотов)
+//   hide_before прятать деталь до старта полёта
+float prog;
+if (chi("auto"))
+    prog = clamp((@Frame - chf("f_start")) / max(chf("f_len"), 1.0), 0.0, 1.0);
+else
+    prog = chf("manual");
+float dur  = clamp(chf("dur"), 0.02, 1.0);
+float jit  = chf("jitter");
+int   sd   = chi("anim_seed");
+float ease = max(chf("ease"), 1.0);
+
+// старт и прогресс этой детали
+float r1 = rand(@ptnum * 0.137 + sd * 17.31);
+float st = (@order + (r1 - 0.5) * jit * 0.25) * (1.0 - dur);
+st = clamp(st, 0.0, 1.0 - dur);
+float u = clamp((prog - st) / dur, 0.0, 1.0);
+float e = 1.0 - pow(1.0 - u, ease);                 // easeOut: быстро подлетает, мягко садится
+
+// откуда прилетает: смесь случайного направления и оси детали
+vector rd = set(rand(@ptnum + sd * 3.1 + 1.0) - 0.5, rand(@ptnum + sd * 3.1 + 2.0) - 0.5, rand(@ptnum + sd * 3.1 + 3.0) - 0.5);
+rd = normalize(rd);
+vector dirv = normalize(lerp(rd, normalize(v@fdir), chf("dir_bias")));
+float dist = chf("dist") * (0.5 + rand(@ptnum * 1.7 + sd));
+
+// поворот: из случайного положения в итоговое
+vector4 qf = p@orient;
+vector4 q0 = qmultiply(quaternion(rand(@ptnum + sd * 5.5 + 9.0) * 6.28318 * chf("spin_amt"), rd), qf);
+p@orient = slerp(q0, qf, e);
+
+// болты: подходят строго вдоль своей оси и закручиваются
+if (i@cls == 8) {
+    dirv = normalize(v@fdir);
+    dist = chf("bolt_dist");
+    vector ax = normalize(qrotate(qf, {0, 0, 1}));
+    p@orient = qmultiply(quaternion(radians(360.0) * f@spin * (1.0 - e), ax), qf);
+}
+@P += dirv * dist * (1.0 - e);
+if (chi("hide_before") && u <= 0.0)
+    v@scale = {0.0001, 0.0001, 0.0001};
+f@prog = u;                                          // прогресс детали 0..1 (для шейдера / отладки)
