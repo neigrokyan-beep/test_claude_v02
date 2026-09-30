@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 bf_build -- Block Frame в открытой сессии Houdini (exec с ARGS). Пересобирает /obj/BLOCK_FRAME,
-студию, камеры, свет, материалы Redshift и драфт-ROP. Сеть делается скриптом, а не руками.
+студию, камеры, свет и драфт-ROP OpenGL (Redshift не используется). Сеть делается скриптом, а не руками.
 
 Процедурная сборка каркаса из блоков (как строительные леса): рама из труб на узлах и хомутах,
 панели на клипсах и болтах, лестницы; всё меняется сидом и параметрами, собирается анимацией.
@@ -12,11 +12,12 @@ bf_build -- Block Frame в открытой сессии Houdini (exec с ARGS).
   02 KIT (один раз)               kit -> pack_by_variant -> OUT_KIT   (по одной детали на подвид)
   03 ASSEMBLY (каждый кадр)       assembly -> OUT_PLACEMENT   (сборка по прогрессу)
   04 INSTANCES (каждый кадр)      copy_parts -> OUT_PARTS   (инстансы деталей по точкам)
-  05 OUTPUT                       parts_material -> OUT_RENDER (display / render)
+  05 OUTPUT                       OUT_RENDER (display / render)
   06 EXPORT (выключен)            unpack -> OUT_GEO   (настоящая геометрия для выгрузки)
 
-ARGS: save=True (сохранить block_frame_v001.hiplc), cams=False (не трогать камеры), rs=False (без материалов),
-      display="OUT_RENDER", render=True + tag/jobs (см. bf_rs.py).
+ARGS: save=True по умолчанию (block_frame_v001.hiplc сохраняется после каждого этапа), cams=False (не трогать камеры),
+      gl=False (без ROP превью), log=<путь> (журнал этапов), display="OUT_RENDER".
+      render=True + tag/jobs — сразу отрисовать кадры OpenGL (см. bf_gl.py).
 """
 import os
 import time
@@ -57,6 +58,15 @@ def _bf_load(names):
 def read(p):
     with open(p, encoding="utf-8") as f:
         return f.read()
+
+
+def P(msg):
+    """строка в консоль и в журнал ARGS['log'] (видно, на каком этапе остановилась сборка)"""
+    line = time.strftime("%H:%M:%S ") + str(msg)
+    print(line)
+    if A.get("log"):
+        with open(A["log"], "a", encoding="utf-8") as f:
+            f.write(line + "\n")
 
 
 exec(compile(read(SRC + "/bf_controls.py"), "bf_controls.py", "exec"))
@@ -272,9 +282,11 @@ def scene_stage(obj):
         mg.setDisplayFlag(True)
         mg.setRenderFlag(True)
         gr.layoutChildren()
+    P("stage: GROUND ok")
     if obj.node("env_light") is None:
         el = obj.createNode("envlight", "env_light")
         setp(el, light_intensity=0.55)
+    P("stage: env_light ok")
     if obj.node("key_light") is None:
         kl = obj.createNode("hlight::2.0", "key_light")
         for tok in ("distant", "grid"):
@@ -394,24 +406,18 @@ def build():
     o_pt.setPosition(V2(0, -15.4))
 
     # 05 OUTPUT
-    pm = g.createNode("attribwrangle", "parts_material")
-    pm.parm("class").set(1)
-    pm.parm("snippet").set('// материал деталей (Redshift, /mat/bf_parts): цвет из Cd подвида\ns@shop_materialpath = "/mat/bf_parts";\n')
-    pm.setInput(0, o_pt)
-    color(pm, C_VEX)
-    pm.setPosition(V2(0, -17.4))
-    o_r = null(g, "OUT_RENDER", pm)
-    o_r.setPosition(V2(0, -18.6))
+    o_r = null(g, "OUT_RENDER", o_pt)
+    o_r.setPosition(V2(0, -17.4))
     o_r.setRenderFlag(True)
 
     # 06 EXPORT (выключен)
     up = g.createNode("unpack", "unpack_parts")
     up.setInput(0, o_pt)
     color(up, C_SOP)
-    up.setPosition(V2(9.0, -17.4))
+    up.setPosition(V2(9.0, -16.2))
     up.bypass(True)
     o_g = null(g, "OUT_GEO", up)
-    o_g.setPosition(V2(9.0, -18.6))
+    o_g.setPosition(V2(9.0, -17.4))
 
     disp = g.node(A.get("display", "OUT_RENDER")) or o_r
     disp.setDisplayFlag(True)
@@ -426,9 +432,9 @@ def build():
          "Сборка по прогрессу: из облака на место\nс торможением, болты вкручиваются.", V2(6.4, -9.8)),
         ("04  INSTANCES  (каждый кадр)", [cp, o_pt], (0.22, 0.30, 0.22),
          "Копии деталей по точкам сборки\n(упакованные — сцена лёгкая).", V2(1.4, -14.4)),
-        ("05  OUTPUT", [pm, o_r], (0.2, 0.2, 0.2), None, None),
+        ("05  OUTPUT", [o_r], (0.2, 0.2, 0.2), None, None),
         ("06  EXPORT  (выключен)", [up, o_g], (0.25, 0.25, 0.25),
-         "Включи unpack, чтобы получить настоящую\nгеометрию (тяжело).", V2(10.4, -17.6)),
+         "Включи unpack, чтобы получить настоящую\nгеометрию (тяжело).", V2(10.4, -16.4)),
     ]
     for title, items, rgb, txt, pos in notes:
         its = list(items)
@@ -436,16 +442,24 @@ def build():
             its.append(sticky(g, txt, pos, V2(4.4, 1.3)))
         box(g, title, its, rgb)
 
+    P("network built: %d nodes" % len(g.children()))
+    if A.get("save", True):
+        hou.hipFile.save(HIP)
+        P("saved (network) " + HIP)
     scene_stage(obj)
+    P("stage + lights ok")
     if A.get("cams", True):
         cameras(obj, g)
-    if A.get("rs", True):
-        rs_src = read(SRC + "/bf_rs.py")
-        exec(compile(rs_src, "bf_rs.py", "exec"), {"hou": hou, "ARGS": {"render": False}, "__name__": "bf_rs"})
-    if A.get("save"):
+        P("cameras ok")
+    if A.get("save", True):
         hou.hipFile.save(HIP)
-        print("saved", HIP)
-    print("built in %.2fs" % (time.time() - t0))
-
+        P("saved (cameras)")
+    if A.get("gl", True):
+        gl_src = read(SRC + "/bf_gl.py")
+        exec(compile(gl_src, "bf_gl.py", "exec"), {"hou": hou, "ARGS": A, "__name__": "bf_gl", "P": P})
+        if A.get("save", True):
+            hou.hipFile.save(HIP)
+            P("saved (gl rop)")
+    P("built in %.2fs" % (time.time() - t0))
 
 build()
