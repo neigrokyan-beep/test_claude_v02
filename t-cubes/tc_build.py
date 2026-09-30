@@ -462,8 +462,8 @@ def main():
     if fld is not None:
         if abs(fld[1000] - L) > 1e-6:
             fld[1000] = L
-        x0 = -spanx * 0.5 - L * 0.5 - pitch
-        x1 = spanx * 0.5 + L * 0.5 + pitch
+        x0 = -spanx * 0.5 - L - pitch      # градиент поля идёт от x-L до x+L
+        x1 = spanx * 0.5 + L + pitch
         x = x0 + (x1 - x0) * prog
         p = fld.GetRelPos()
         if abs(p.x - x) > 1e-6:
