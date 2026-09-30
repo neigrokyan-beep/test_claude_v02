@@ -361,8 +361,8 @@ def phase_keys(i0, i1):
             K.add(M, ROT, X, ts, el["srot"] * p)
             K.add(M, SCL, Y, ts, 1.0 - 0.88 * p)
         # ---- y of the module: running wave + lift + yellow card (sum, key every 5 frames)
-        lifter = (not el["card"]) and (w * h) / (U * U) >= 1.5 and roll_l < 0.16 and not (
-            k in ("white", "grey", "yellow") and (w * h) / (U * U) <= 2.3 and roll_f < 0.22)
+        is_flip = k in ("white", "grey", "yellow") and (w * h) / (U * U) <= 2.3 and roll_f < 0.22
+        lifter = (not el["card"]) and (w * h) / (U * U) >= 1.5 and roll_l < 0.16 and not is_flip
         for f in range(0, int(END_S * FPS) + 1, 5):
             ts = f / float(FPS)
             si = shot_idx(ts)
@@ -379,7 +379,7 @@ def phase_keys(i0, i1):
                     y += 0.45 * U * (1.0 - smooth((ts - 54.6) / 1.0))
             K.add(M, POS, Y, ts, y)
         # ---- plate flip (small plain tiles): key every frame during the 0.45 s turn
-        if k in ("white", "grey", "yellow") and (w * h) / (U * U) <= 2.3 and roll_f < 0.22 and plate is not None:
+        if is_flip and plate is not None:
             comp = Y if w >= h else Z
             fl = 0.55 * (min(w, h) + t)
             K.add(plate, ROT, comp, 0.0, 0.0)
